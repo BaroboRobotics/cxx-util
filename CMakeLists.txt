@@ -9,7 +9,7 @@ set(SOURCES
 
 # TODO: use an INTERFACE library instead in CMake 3.0
 add_library(cxx-util OBJECT ${SOURCES})
-target_include_directories(cxx-util PUBLIC include)
+target_include_directories(cxx-util INTERFACE include)
 
 if(CXXUTIL_BUILD_TESTS)
     enable_testing()
