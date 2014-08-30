@@ -4,7 +4,7 @@ project(cxx-util CXX)
 option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
 
 set(SOURCES
-    include/util/callback.hpp
+    dummySourceFile.cpp
     )
 
 # TODO: use an INTERFACE library instead in CMake 3.0
