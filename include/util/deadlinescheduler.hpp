@@ -13,27 +13,12 @@ namespace util {
 
 class DeadlineScheduler {
 public:
-    DeadlineScheduler () : mWork(mIoService) { }
+    DeadlineScheduler () : mWork(mIoService) {
+        start();
+    }
 
     ~DeadlineScheduler () {
         stop();
-    }
-
-    void start () {
-        std::lock_guard<std::mutex> lock { mIoThreadMutex };
-        if (!mIoThread.joinable()) {
-            mIoService.reset();
-            std::thread t { &DeadlineScheduler::threadMain, this };
-            mIoThread.swap(t);
-        }
-    }
-
-    void stop () {
-        std::lock_guard<std::mutex> lock { mIoThreadMutex };
-        if (mIoThread.joinable()) {
-            mIoService.stop();
-            mIoThread.join();
-        }
     }
 
     template <class Duration, class NullaryFunction>
@@ -73,6 +58,23 @@ public:
     }
 
 private:
+    void start () {
+        std::lock_guard<std::mutex> lock { mIoThreadMutex };
+        if (!mIoThread.joinable()) {
+            mIoService.reset();
+            std::thread t { &DeadlineScheduler::threadMain, this };
+            mIoThread.swap(t);
+        }
+    }
+
+    void stop () {
+        std::lock_guard<std::mutex> lock { mIoThreadMutex };
+        if (mIoThread.joinable()) {
+            mIoService.stop();
+            mIoThread.join();
+        }
+    }
+
     boost::asio::io_service mIoService;
     boost::asio::io_service::work mWork;
 

@@ -4,7 +4,7 @@
 #include <random>
 #include <string>
 
-const int kNTasks = 1000;
+const int kNTasks = 100;
 const int kMillisecondsMin = 50;
 const int kMillisecondsMax = 5000;
 
@@ -35,9 +35,7 @@ int main (int argc, char** argv) {
         );
     }
 
-    scheduler.start();
     std::this_thread::sleep_for(std::chrono::milliseconds(runTimeMs));
-    scheduler.stop();
 
     std::cout << "Seed was " << seed << '\n';
     assert(std::is_sorted(integers.cbegin(), integers.cend()));
