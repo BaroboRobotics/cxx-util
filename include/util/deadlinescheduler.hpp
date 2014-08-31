@@ -20,13 +20,18 @@ public:
     }
 
     void start () {
-        std::thread t { &DeadlineScheduler::threadMain, this };
-        mIoThread.swap(t);
+        std::lock_guard<std::mutex> lock { mIoThreadMutex };
+        if (!mIoThread.joinable()) {
+            mIoService.reset();
+            std::thread t { &DeadlineScheduler::threadMain, this };
+            mIoThread.swap(t);
+        }
     }
 
     void stop () {
-        mIoService.stop();
+        std::lock_guard<std::mutex> lock { mIoThreadMutex };
         if (mIoThread.joinable()) {
+            mIoService.stop();
             mIoThread.join();
         }
     }
@@ -77,6 +82,7 @@ private:
     std::mutex mTimersMutex;
 
     std::thread mIoThread;
+    std::mutex mIoThreadMutex;
 };
 
 } // namespace util
