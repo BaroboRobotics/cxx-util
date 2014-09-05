@@ -30,8 +30,8 @@ public:
         }
         // Run this lambda after the specified duration.
         iter->async_wait(
-            [=] (const boost::system::error_code& error) {
-                { 
+            [=] (const boost::system::error_code& error) mutable {
+                {
                     std::lock_guard<std::mutex> erasureLock { mTimersMutex };
                     mTimers.erase(iter);
                 }
