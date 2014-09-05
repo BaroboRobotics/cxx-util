@@ -53,6 +53,7 @@ public:
             std::cout << "DeadlineScheduler: io_service::run exited with error: "
                       << error.message() << '\n';
         }
+        (void)nTasksCompleted;
         //std::cout << "DeadlineScheduler completed " << nTasksCompleted
         //          << " of " << nTasksCompleted + mTimers.size() << " tasks.\n";
     }
