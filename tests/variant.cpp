@@ -48,17 +48,20 @@ int main () {
     {
         // MoveConstructible, syntax 1
         Var v = A{0};
-        v.apply(AssertIdEquals<A>(0));
+        util::apply(AssertIdEquals<A>(0), v);
 
         // MoveAssignable
         static_assert(std::is_same<decltype(v = B{2}), Var&>::value,
                 "return type of assignment operator is wrong");
         v = B{2};
-        v.apply(AssertIdEquals<B>(2));
+        util::apply(AssertIdEquals<B>(2), v);
+
+        v = B{3};
+        util::apply(AssertIdEquals<B>(3), v);
 
         // MoveConstructible, syntax 2
         std::unique_ptr<Var> u { new Var(B{1}) };
-        u->apply(AssertIdEquals<B>(1));
+        util::apply(AssertIdEquals<B>(1), *u);
     }
     return 0;
 }
