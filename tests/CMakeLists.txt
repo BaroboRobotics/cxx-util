@@ -27,3 +27,11 @@ add_test(NAME deadlinescheduler-1000ms-run-time COMMAND deadlinescheduler 1000)
 add_test(NAME deadlinescheduler-1500ms-run-time COMMAND deadlinescheduler 1500)
 add_test(NAME deadlinescheduler-3000ms-run-time COMMAND deadlinescheduler 3000)
 add_test(NAME deadlinescheduler-6000ms-run-time COMMAND deadlinescheduler 6000)
+
+set_source_files_properties(variant.cpp PROPERTIES
+    COMPILE_FLAGS "-std=c++11")
+add_executable(variant variant.cpp)
+target_include_directories(variant
+    PRIVATE $<TARGET_PROPERTY:cxx-util,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+add_test(NAME variant COMMAND variant)
