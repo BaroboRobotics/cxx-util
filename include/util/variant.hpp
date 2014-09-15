@@ -65,8 +65,8 @@ public:
     static_assert(!any(std::is_const<Ts>::value...),
             "bounded types may not be const");
 
-    static_assert(!any(!std::is_nothrow_move_constructible<Ts>::value...),
-            "bounded types must be nothrow move-constructible");
+    //static_assert(!any(!std::is_nothrow_move_constructible<Ts>::value...),
+    //        "bounded types must be nothrow move-constructible");
 
     template <class... Us>
     friend void swap (Variant<Us...>& lhs, Variant<Us...>& rhs) noexcept;
@@ -84,6 +84,8 @@ public:
 
     template <class U>
     Variant (U&& x) noexcept : mDtor(&detail::dtor<U>) {
+        //static_assert(std::is_nothrow_move_constructible<U>::value,
+        //    "throwing move constructor in bounded type");
         static_assert(any(std::is_same<U, Ts>::value...),
                 "variant construction from unbounded type");
         new (&mData) U(std::forward<U>(x));
