@@ -4,6 +4,9 @@
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/steady_timer.hpp>
 
+#include <boost/log/common.hpp>
+#include <boost/log/sources/logger.hpp>
+
 #include <iostream>
 #include <list>
 #include <mutex>
@@ -23,24 +26,31 @@ public:
 
     template <class Duration, class NullaryFunction>
     void executeAfter (Duration duration, NullaryFunction userTask) {
+        BOOST_LOG_NAMED_SCOPE("util::DeadlineScheduler::executeAfter");
         typename decltype(mTimers)::iterator iter;
         {
             std::lock_guard<std::mutex> emplacementLock { mTimersMutex };
             iter = mTimers.emplace(mTimers.end(), mIoService, duration);
         }
+        BOOST_LOG(mLog) << "emplaced deadline " << &*iter;
         // Run this lambda after the specified duration.
         iter->async_wait(
             [=] (const boost::system::error_code& error) mutable {
+                BOOST_LOG_NAMED_SCOPE("util::DeadlineScheduler::executeAfter::(lambda)");
+                BOOST_LOG(mLog) << "processing deadline " << &*iter;
                 {
                     std::lock_guard<std::mutex> erasureLock { mTimersMutex };
                     mTimers.erase(iter);
                 }
+                BOOST_LOG(mLog) << "erased deadline " << &*iter;
                 if (!error) {
+                    BOOST_LOG(mLog) << "executing user task";
                     userTask();
+                    BOOST_LOG(mLog) << "complete";
                 }
                 else {
-                    std::cout << "DeadlineScheduler: io_service passed error to task: "
-                              << error.message() << '\n';
+                    BOOST_LOG(mLog) << "io_service passed error to task: "
+                                    << error.message();
                 }
             }
         );
@@ -73,6 +83,8 @@ private:
             mIoThread.join();
         }
     }
+
+    boost::log::sources::logger_mt mLog;
 
     boost::asio::io_service mIoService;
     boost::asio::io_service::work mWork;
