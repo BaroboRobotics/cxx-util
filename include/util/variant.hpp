@@ -4,6 +4,8 @@
 #include "util/any.hpp"
 #include "util/min_max.hpp"
 
+#include <boost/predef.h> // to check for gcc < 4.8
+
 #include <new>
 #include <tuple>
 #include <type_traits>
@@ -65,8 +67,19 @@ public:
     static_assert(!any(std::is_const<Ts>::value...),
             "bounded types may not be const");
 
-    //static_assert(!any(!std::is_nothrow_move_constructible<Ts>::value...),
-    //        "bounded types must be nothrow move-constructible");
+// The standard library that comes with gcc < 4.8, or perhaps the compiler
+// itself, is buggy: std::promise's move constructor is marked noexcept, but
+// std::is_nothrow_move_constructible disagrees. This check might be more
+// appropriate against the standard library version number, but ain't nobody
+// got time for that.
+#if !BOOST_COMP_GNUC || BOOST_COMP_GNUC >= BOOST_VERSION_NUMBER(4,8,0)
+    static_assert(!any(!std::is_nothrow_move_constructible<Ts>::value...),
+            "bounded types must be nothrow move-constructible");
+#else
+# warning Your version of gcc does not have a nothrow move-constructible std::promise.
+# warning Disabling nothrow move-constructible checks in util::Variant.
+# warning Upgrade to gcc 4.8+.
+#endif
 
     template <class... Us>
     friend void swap (Variant<Us...>& lhs, Variant<Us...>& rhs) noexcept;
@@ -84,8 +97,6 @@ public:
 
     template <class U>
     Variant (U&& x) noexcept : mDtor(&detail::dtor<U>) {
-        //static_assert(std::is_nothrow_move_constructible<U>::value,
-        //    "throwing move constructor in bounded type");
         static_assert(any(std::is_same<U, Ts>::value...),
                 "variant construction from unbounded type");
         new (&mData) U(std::forward<U>(x));
