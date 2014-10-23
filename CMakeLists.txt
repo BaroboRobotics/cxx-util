@@ -7,14 +7,13 @@ set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread)
 
 set(SOURCES
-    dummySourceFile.cpp
+    src/hexdump.cpp
     )
 
-# TODO: use an INTERFACE library instead in CMake 3.0
 add_library(cxx-util STATIC ${SOURCES})
 target_link_libraries(cxx-util
 	INTERFACE ${Boost_LIBRARIES})
-target_include_directories(cxx-util INTERFACE include)
+target_include_directories(cxx-util PUBLIC include)
 
 if(CXXUTIL_BUILD_TESTS)
     enable_testing()
