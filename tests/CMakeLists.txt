@@ -1,5 +1,5 @@
 set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.54.0 REQUIRED COMPONENTS system)
+find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread)
 
 ##############################################################################
 # Tests
@@ -33,5 +33,6 @@ set_source_files_properties(variant.cpp PROPERTIES
 add_executable(variant variant.cpp)
 target_include_directories(variant
     PRIVATE $<TARGET_PROPERTY:cxx-util,INTERFACE_INCLUDE_DIRECTORIES>
+    ${Boost_INCLUDE_DIRS}
     )
 add_test(NAME variant COMMAND variant)
