@@ -2,7 +2,7 @@
 #define UTIL_LOGSAFELY_HPP
 
 #include <boost/log/attributes/timer.hpp>
-#include <boost/log/utility/formatting_ostream_fwd.hpp>
+#include <boost/log/utility/formatting_ostream.hpp>
 #include <boost/log/utility/manipulators/to_log.hpp>
 
 #include <iomanip>
