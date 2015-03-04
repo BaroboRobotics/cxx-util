@@ -18,8 +18,21 @@ public:
         , mAcquired(std::chrono::steady_clock::now())
     {}
 
-    BenchmarkedLock (BenchmarkedLock&&) = default;
-    BenchmarkedLock& operator= (BenchmarkedLock&&) = default;
+    friend void swap (BenchmarkedLock& lhs, BenchmarkedLock& rhs) BOOST_NOEXCEPT {
+        using std::swap;
+        swap(lhs.mStart, rhs.mStart);
+        swap(lhs.mLock, rhs.mLock);
+        swap(lhs.mAcquired, rhs.mAcquired);
+    }
+
+    BenchmarkedLock (BenchmarkedLock&& that) {
+        swap(*this, that);
+    }
+
+    BenchmarkedLock& operator= (BenchmarkedLock that) {
+        swap(*this, that);
+        return *this;
+    }
 
     ~BenchmarkedLock () {
 #if 0
