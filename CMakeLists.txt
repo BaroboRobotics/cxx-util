@@ -11,20 +11,16 @@ option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
 set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread)
 
-set(SOURCES
-    src/hexdump.cpp
-    )
-
-add_library(cxx-util STATIC ${SOURCES})
+add_library(cxx-util INTERFACE)
 target_link_libraries(cxx-util
 	INTERFACE ${Boost_LIBRARIES})
-target_include_directories(cxx-util PUBLIC include)
+target_include_directories(cxx-util INTERFACE include)
 
-set_target_properties(cxx-util PROPERTIES
-  VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
-  SOVERSION ${VERSION_MAJOR}
-  MACOSX_RPATH ON
-)
+#set_target_properties(cxx-util PROPERTIES
+#  VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
+#  SOVERSION ${VERSION_MAJOR}
+#  MACOSX_RPATH ON
+#)
 
 if(CXXUTIL_BUILD_TESTS)
     enable_testing()
