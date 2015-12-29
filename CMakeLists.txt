@@ -9,12 +9,12 @@ set(VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH})
 option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
 
 set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread)
+find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread date_time regex)
 
 add_library(cxx-util INTERFACE)
 target_link_libraries(cxx-util
 	INTERFACE ${Boost_LIBRARIES})
-target_include_directories(cxx-util INTERFACE include)
+target_include_directories(cxx-util INTERFACE include ${Boost_INCLUDE_DIRS})
 
 #set_target_properties(cxx-util PROPERTIES
 #  VERSION ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}
