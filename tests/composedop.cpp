@@ -1,7 +1,6 @@
-#include <util/asio_handler_helpers.hpp>
+#include <util/composedop.hpp>
 
 #include <boost/asio.hpp>
-#include <boost/asio/coroutine.hpp>
 
 #include <boost/optional.hpp>
 #include <boost/utility/in_place_factory.hpp>
@@ -9,7 +8,6 @@
 #include <array>
 #include <future>
 #include <iostream>
-#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -20,75 +18,39 @@ namespace sys = boost::system;
 
 //static const uint8_t kSyncMessage [] = { Cmnd_STK_GET_SYNC, Sync_CRC_EOP };
 
-static const auto kEchoes = int(10);
-
-typedef void EchoHandlerSignature(sys::error_code);
+static const auto kEchoes = int(100);
 
 #include <boost/asio/yield.hpp> // define reenter, yield, and fork
-template <class Stream, class Handler>
+template <class Stream>
 struct EchoOp {
-    struct State {
-        template <class H>
-        State (Stream& s, int n, H&& h)
-            : stream(s)
-            , echoes(n)
-            , handler(forward<H>(h))
-        {}
-
-        Stream& stream;
-        int echoes;
-        Handler handler;
-        array<uint8_t, 1024> buf;
-    };
-
-    asio::coroutine coro;
-    bool continuation = false;
-    shared_ptr<State> m;
-
-    template <class H>
-    EchoOp (Stream& stream, int echoes, H&& h)
-        : m(make_shared<State>(stream, echoes, forward<H>(h)))
+    EchoOp (Stream& s, int n)
+        : stream(s)
+        , echoes(n)
     {}
 
-    void operator() (sys::error_code ec, size_t nTransferred, bool c = true) {
+    Stream& stream;
+    int echoes;
+    array<uint8_t, 1024> buf;
+
+    template <class Op>
+    void operator() (Op& op, sys::error_code ec, size_t nTransferred) {
         if (!ec) {
-            continuation = c;
-            reenter (coro) {
-                while (--m->echoes >= 0) {
-                    yield m->stream.async_read_some(asio::buffer(m->buf), move(*this));
-                    yield asio::async_write(m->stream, asio::buffer(m->buf, nTransferred), move(*this));
+            reenter (op) {
+                while (--echoes >= 0) {
+                    yield stream.async_read_some(asio::buffer(buf), move(op));
+                    yield asio::async_write(stream, asio::buffer(buf, nTransferred), move(op));
                 }
-                m->handler(sys::error_code{});
+                op.complete(sys::error_code{});
             }
         }
         else {
-            m->handler(ec);
+            op.complete(ec);
         }
-    }
-
-    // Inherit the allocation and invocation strategies from the operation's
-    // completion handler.
-    friend void* asio_handler_allocate (size_t size, EchoOp* self) {
-        return util::asio_handler_helpers::allocate(size, self->m->handler);
-    }
-
-    friend void asio_handler_deallocate (void* pointer, size_t size, EchoOp* self) {
-        util::asio_handler_helpers::deallocate(pointer, size, self->m->handler);
-    }
-
-    template <class Function>
-    friend void asio_handler_invoke (Function&& f, EchoOp* self) {
-        util::asio_handler_helpers::invoke(forward<Function>(f), self->m->handler);
-    }
-
-    // Inherit the is_continuation strategy from the operation's completion
-    // handler unless we know we are a continuation (i.e., the coroutine is
-    // reentered, then suspends itself again).
-    friend bool asio_handler_is_continuation (EchoOp* self) {
-        return self->continuation || util::asio_handler_helpers::is_continuation(self->m->handler)
     }
 };
 #include <boost/asio/unyield.hpp> // undef reenter, yield, and fork
+
+typedef void EchoHandlerSignature(sys::error_code);
 
 template <class Stream, class CompletionToken>
 BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, EchoHandlerSignature)
@@ -97,8 +59,10 @@ asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
         CompletionToken, EchoHandlerSignature
     > init { forward<CompletionToken>(token) };
 
-    auto op = EchoOp<Stream, decltype(init.handler)>{stream, echoes, init.handler};
-    op(sys::error_code{}, 0, false);
+    //startComposedOp(echoOpImpl, EchoOp<Stream>{stream, echoes}, init.handler);
+    util::ComposedOp<EchoOp<Stream>, decltype(init.handler)>{
+        EchoOp<Stream>{stream, echoes}, init.handler
+    }(sys::error_code{}, 0);
 
     return init.result.get();
 }
