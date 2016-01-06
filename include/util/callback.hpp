@@ -151,21 +151,21 @@ getCallbackFactory(R (T::*)(Ps...) const)
 template <class FuncSignature>
 class Signal;
 
-template <class R, class... Ps>
-class Signal<R(Ps...)> {
+template <class... Ps>
+class Signal<void(Ps...)> {
 public:
-    R operator() (Ps... as) const {
+    void operator() (Ps... as) const {
         if (mCallback) {
-            return mCallback(as...);
+            mCallback(as...);
         }
     }
 
-    void connect (Callback<R(Ps...)> callback) {
+    void connect (Callback<void(Ps...)> callback) {
         mCallback = callback;
     }
 
 private:
-    Callback<R(Ps...)> mCallback;
+    Callback<void(Ps...)> mCallback;
 };
 
 } // namespace util

@@ -8,16 +8,16 @@ struct AddTwo {
 
 int main () {
     int x;
-    util::Signal<int(int)> sig;
+    util::Callback<int(int)> sig;
 
     auto addOne = [] (int i) { return i + 1; };
     using Lambda = decltype(addOne);
 
-    sig.connect(BIND_MEM_CB(&Lambda::operator(), &addOne));
+    sig = BIND_MEM_CB(&Lambda::operator(), &addOne);
     x = sig(1);
     assert(2 == x);
 
-    sig.connect(BIND_FREE_CB(&AddTwo::exec));
+    sig = BIND_FREE_CB(&AddTwo::exec);
     x = sig(1);
     assert(3 == x);
 
