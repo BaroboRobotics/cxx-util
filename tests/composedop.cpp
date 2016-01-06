@@ -20,6 +20,8 @@ namespace sys = boost::system;
 
 static const auto kEchoes = int(100);
 
+typedef void EchoHandlerSignature(sys::error_code);
+
 #include <boost/asio/yield.hpp> // define reenter, yield, and fork
 template <class Stream>
 struct EchoOp {
@@ -31,6 +33,7 @@ struct EchoOp {
     Stream& stream;
     int echoes;
     array<uint8_t, 1024> buf;
+    sys::error_code returnCode;
 
     template <class Op>
     void operator() (Op& op, sys::error_code ec, size_t nTransferred) {
@@ -40,17 +43,18 @@ struct EchoOp {
                     yield stream.async_read_some(asio::buffer(buf), move(op));
                     yield asio::async_write(stream, asio::buffer(buf, nTransferred), move(op));
                 }
-                op.complete(sys::error_code{});
             }
         }
         else {
-            op.complete(ec);
+            returnCode = ec;
         }
+    }
+
+    util::ComposedOpResult<EchoHandlerSignature> result () {
+        return std::make_tuple(returnCode);
     }
 };
 #include <boost/asio/unyield.hpp> // undef reenter, yield, and fork
-
-typedef void EchoHandlerSignature(sys::error_code);
 
 template <class Stream, class CompletionToken>
 BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, EchoHandlerSignature)
@@ -59,10 +63,9 @@ asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
         CompletionToken, EchoHandlerSignature
     > init { forward<CompletionToken>(token) };
 
-    //startComposedOp(echoOpImpl, EchoOp<Stream>{stream, echoes}, init.handler);
-    util::ComposedOp<EchoOp<Stream>, decltype(init.handler)>{
-        EchoOp<Stream>{stream, echoes}, init.handler
-    }(sys::error_code{}, 0);
+    util::makeComposedOp<EchoHandlerSignature>
+        (EchoOp<Stream>{stream, echoes}, init.handler)
+        (sys::error_code{}, 0);
 
     return init.result.get();
 }
