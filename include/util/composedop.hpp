@@ -97,13 +97,9 @@ public:
         // into an infinite loop. Learned the hard way.
     }
 
-#if 0
-    ComposedOp& operator= (ComposedOp other) {
-        using std::swap;
-        swap(*this, other);
-        return *this;
-    }
-#endif
+    // Until there's a compelling use case, disallow assignment.
+    ComposedOp& operator= (const ComposedOp& other) = delete;
+    ComposedOp& operator= (ComposedOp&& other) = delete;
 
     ~ComposedOp () {
         // If this op was copied, useCount() must be > 1.
