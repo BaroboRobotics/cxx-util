@@ -1,9 +1,7 @@
 #include <util/composedop.hpp>
+#include <util/iothread.hpp>
 
 #include <boost/asio.hpp>
-
-#include <boost/optional.hpp>
-#include <boost/utility/in_place_factory.hpp>
 
 #include <array>
 #include <future>
@@ -12,15 +10,16 @@
 #include <utility>
 #include <vector>
 
-using namespace std;
 namespace asio = boost::asio;
-namespace sys = boost::system;
-
-//static const uint8_t kSyncMessage [] = { Cmnd_STK_GET_SYNC, Sync_CRC_EOP };
+using boost::system::error_code;
+using boost::system::system_error;
+using std::forward;
+using std::move;
+using std::string;
+using std::cout;
+using std::cerr;
 
 static const auto kEchoes = int(100);
-
-typedef void EchoHandlerSignature(sys::error_code);
 
 #include <boost/asio/yield.hpp> // define reenter, yield, and fork
 template <class Stream>
@@ -32,11 +31,15 @@ struct EchoOp {
 
     Stream& stream;
     int echoes;
-    array<uint8_t, 1024> buf;
-    sys::error_code returnCode;
+    std::array<std::uint8_t, 1024> buf;
+    error_code rc;
+
+    std::tuple<error_code> result () {
+        return std::make_tuple(rc);
+    }
 
     template <class Op>
-    void operator() (Op& op, sys::error_code ec, size_t nTransferred) {
+    void operator() (Op& op, error_code ec = {}, size_t nTransferred = 0) {
         if (!ec) {
             reenter (op) {
                 while (--echoes >= 0) {
@@ -46,44 +49,36 @@ struct EchoOp {
             }
         }
         else {
-            returnCode = ec;
+            rc = ec;
         }
-    }
-
-    util::ComposedOpResult<EchoHandlerSignature> result () {
-        return std::make_tuple(returnCode);
     }
 };
 #include <boost/asio/unyield.hpp> // undef reenter, yield, and fork
 
 template <class Stream, class CompletionToken>
-BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, EchoHandlerSignature)
+BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, void(error_code))
 asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
     asio::detail::async_result_init<
-        CompletionToken, EchoHandlerSignature
+        CompletionToken, void(error_code)
     > init { forward<CompletionToken>(token) };
 
-    util::makeComposedOp<EchoHandlerSignature>
-        (EchoOp<Stream>{stream, echoes}, init.handler)
-        (sys::error_code{}, 0);
+    util::makeComposedOp(EchoOp<Stream>{stream, echoes}, init.handler)();
 
     return init.result.get();
 }
 
-int main () {
-    auto ios = asio::io_service{};
-    auto work = boost::optional<asio::io_service::work>{boost::in_place(std::ref(ios))};
-    auto nHandlers = async(launch::async, [&] () { return ios.run(); });
+int main () try {
+    util::IoThread io;
 
     auto endpoint = asio::ip::tcp::endpoint{asio::ip::tcp::v4(), 6666};
 
     // Server
-    auto acceptor = asio::ip::tcp::acceptor{ios, endpoint};
-    auto serverSocket = asio::ip::tcp::socket{ios};
-    acceptor.async_accept(serverSocket, [&] (sys::error_code ec) {
+    auto acceptor = asio::ip::tcp::acceptor{io.context(), endpoint};
+    auto serverSocket = asio::ip::tcp::socket{io.context()};
+    acceptor.async_accept(serverSocket, [&] (error_code ec) {
         if (!ec) {
             acceptor.close();
-            asyncEcho(serverSocket, kEchoes, [&] (sys::error_code ec2) {
+            asyncEcho(serverSocket, kEchoes, [&] (error_code ec2) {
                 cout << "Echo server finished, woot: " << ec2.message() << "\n";
                 serverSocket.shutdown(asio::ip::tcp::socket::shutdown_both, ec2);
                 serverSocket.close(ec2);
@@ -95,30 +90,32 @@ int main () {
     });
 
     // Client
-    auto resolver = asio::ip::tcp::resolver{ios};
-    auto clientSocket = asio::ip::tcp::socket{ios};
+    auto resolver = asio::ip::tcp::resolver{io.context()};
+    auto clientSocket = asio::ip::tcp::socket{io.context()};
     try {
         asio::connect(clientSocket, resolver.resolve({"127.0.0.1", "6666"}));
         cout << "Connected to server\n";
         for (int i = 0; ; ++i) {
-            auto s = to_string(i);
+            auto s = std::to_string(i);
             (void)asio::write(clientSocket, asio::buffer(s));
-            auto v = vector<uint8_t>(1024);
+            auto v = std::vector<uint8_t>(1024);
             auto nRead = clientSocket.read_some(asio::buffer(v));
             v.resize(nRead);
             auto echoed = string(v.begin(), v.end());
             cout << "Read " << echoed << "\n";
         }
     }
-    catch (sys::system_error& e) {
+    catch (system_error& e) {
         cout << "Client exception: " << e.what() << "\n";
     }
-    auto ec = sys::error_code{};
+    auto ec = error_code{};
     clientSocket.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
     clientSocket.close(ec);
     acceptor.close(ec);
 
-    work = boost::none;
-    cout << "Ran " << nHandlers.get() << " handlers\n";
+    cout << "Ran " << io.join() << " handlers\n";
     return 0;
+}
+catch (std::exception& e) {
+    cerr << "Exception in main(): " << e.what() << "\n";
 }
