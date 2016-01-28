@@ -11,7 +11,10 @@ option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
 set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread date_time regex iostreams)
 
-set(sources src/iothread.cpp)
+set(sources
+    src/blob.cpp
+    src/iothread.cpp
+    )
 set_source_files_properties(${sources} PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
 add_library(cxx-util STATIC ${sources})
 target_link_libraries(cxx-util PUBLIC ${Boost_LIBRARIES})
