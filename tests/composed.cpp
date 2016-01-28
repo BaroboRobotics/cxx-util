@@ -1,7 +1,8 @@
-#include <util/composedop.hpp>
+#include <util/composed.hpp>
 #include <util/iothread.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/yield.hpp> // define reenter, yield, and fork
 
 #include <array>
 #include <future>
@@ -21,7 +22,6 @@ using std::cerr;
 
 static const auto kEchoes = int(100);
 
-#include <boost/asio/yield.hpp> // define reenter, yield, and fork
 template <class Stream>
 struct EchoOp {
     EchoOp (Stream& s, int n)
@@ -53,7 +53,6 @@ struct EchoOp {
         }
     }
 };
-#include <boost/asio/unyield.hpp> // undef reenter, yield, and fork
 
 template <class Stream, class CompletionToken>
 BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, void(error_code))
@@ -62,7 +61,7 @@ asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
         CompletionToken, void(error_code)
     > init { forward<CompletionToken>(token) };
 
-    util::makeComposedOp(EchoOp<Stream>{stream, echoes}, init.handler)();
+    util::composed::makeOperation<EchoOp<Stream>>(std::move(init.handler), stream, echoes)();
 
     return init.result.get();
 }
@@ -119,3 +118,5 @@ int main () try {
 catch (std::exception& e) {
     cerr << "Exception in main(): " << e.what() << "\n";
 }
+
+#include <boost/asio/unyield.hpp> // undef reenter, yield, and fork
