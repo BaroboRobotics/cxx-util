@@ -3,15 +3,16 @@
 
 #include <algorithm>
 #include <list>
+#include <string>
 
 namespace util {
 
-Blob makeBlobFromIntelHex (const char* begin, const char* end) {
+Blob makeBlobFromIntelHex (const std::string& hex) {
     namespace ihex = util::intelhex;
 
     auto records = std::list<Blob>{};
-    auto grammar = ihex::Grammar<decltype(begin)>{};
-    if (!ihex::qi::parse(begin, end, grammar >> ihex::qi::eoi, records)) {
+    auto grammar = ihex::Grammar<decltype(hex.begin())>{};
+    if (!ihex::qi::parse(hex.begin(), hex.end(), grammar >> ihex::qi::eoi, records)) {
         throw BlobError{"Intel HEX parse error"};
     }
 

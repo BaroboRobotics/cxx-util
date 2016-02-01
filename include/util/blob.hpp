@@ -33,9 +33,8 @@ private:
     Code mCode;
 };
 
-// Construct a Blob from a character array containing Intel HEX
-// records.
-Blob makeBlobFromIntelHex (const char* begin, const char* end);
+// Construct a Blob from a string containing Intel HEX records.
+Blob makeBlobFromIntelHex (const std::string&);
 
 struct BlobError : std::runtime_error {
     BlobError (std::string w) : std::runtime_error(w) {}
