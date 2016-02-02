@@ -64,6 +64,15 @@ inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud) {
 #endif
 }
 
+inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud, boost::system::error_code& ec) {
+    try {
+        setSerialPortOptions(sp, baud);
+    }
+    catch (boost::system::system_error& e) {
+        ec = e.code();
+    }
+}
+
 } // namespace util
 
 #endif
