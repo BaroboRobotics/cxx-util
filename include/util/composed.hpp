@@ -131,7 +131,7 @@ public:
     }
 
     friend bool asio_handler_is_continuation (Operation* self) {
-        return asio_handler_hooks::is_continuation(self->m->handler())
+        return asio_handler_hooks::is_continuation(self->m->handler());
     }
 
 private:
