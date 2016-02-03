@@ -29,7 +29,7 @@ static const std::chrono::milliseconds kSerialSettleTimeAfterOpen { 500 };
 // How many times we should try setting a serial option before throwing an
 // error. On OS X 10.11, it sometimes requires dozens of attempts to set serial
 // line options. Setting this to zero is the same as setting it to one.
-static const int kMaxSerialSetOptionAttempts { 5000 };
+static const int kMaxSerialSetOptionAttempts { 100 };
 
 template <class Option>
 void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int maxAttempts) {
