@@ -31,7 +31,7 @@ inline void invoke (Function&& f, Context& context) {
 template <class Context>
 inline bool is_continuation (Context& context) {
     using boost::asio::asio_handler_is_continuation;
-    asio_handler_is_continuation(std::addressof(context));
+    return asio_handler_is_continuation(std::addressof(context));
 }
 
 } // namespace asio_handler_hooks
