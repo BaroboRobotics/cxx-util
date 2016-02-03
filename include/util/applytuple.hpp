@@ -52,7 +52,7 @@ inline auto applyTupleImpl (F&& f, Tuple&& t, I<Indices...>&&)
 // Due to a compiler bug in VS2013, we have to use a void return type here. Go
 // back to trailing return type when we can switch to VS2015.
 template <class F, class Tuple,
-    class Indices = detail::make_index_sequence<std::tuple_size<typename std::decay<Tuple>::type>::value>::type
+    class Indices = typename detail::make_index_sequence<std::tuple_size<typename std::decay<Tuple>::type>::value>::type
 >
 inline auto applyTuple (F&& f, Tuple&& t)
     -> decltype(detail::applyTupleImpl(std::forward<F>(f), std::forward<Tuple>(t), Indices{}))

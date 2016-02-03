@@ -11,7 +11,8 @@ Blob makeBlobFromIntelHex (const std::string& hex) {
     namespace ihex = util::intelhex;
 
     auto records = std::list<Blob>{};
-    auto grammar = ihex::Grammar<decltype(hex.begin())>{};
+    //auto grammar = ihex::Grammar<decltype(hex.begin())>{};
+    ihex::Grammar<decltype(hex.begin())> grammar;
     if (!ihex::qi::parse(hex.begin(), hex.end(), grammar >> ihex::qi::eoi, records)) {
         throw BlobError{"Intel HEX parse error"};
     }

@@ -17,6 +17,7 @@ set(sources
     )
 set_source_files_properties(${sources} PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
 add_library(cxx-util STATIC ${sources})
+set_target_properties(cxx-util PROPERTIES CXX_STANDARD 11 CXX_STANDARD_REQUIRED ON)
 target_link_libraries(cxx-util PUBLIC ${Boost_LIBRARIES})
 target_include_directories(cxx-util PUBLIC include ${Boost_INCLUDE_DIRS})
 

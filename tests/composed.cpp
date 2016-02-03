@@ -39,7 +39,7 @@ struct EchoOp {
     }
 
     template <class Op>
-    void operator() (Op& op, error_code ec = {}, size_t nTransferred = 0) {
+    void operator() (Op&& op, error_code ec = {}, size_t nTransferred = 0) {
         if (!ec) {
             reenter (op) {
                 while (--echoes >= 0) {
