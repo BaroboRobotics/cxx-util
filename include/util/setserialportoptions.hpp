@@ -12,6 +12,7 @@
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
 
+#include <iostream>
 #include <chrono>
 #include <memory>
 
@@ -35,14 +36,26 @@ template <class Option>
 void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int maxAttempts) {
     auto attempts = 0;
     auto ec = boost::system::error_code{};
+    boost::log::sources::logger lg;
     do {
         ec = boost::system::error_code{};
+        // On Mac OSX 10.11, we have to flush the serial port before and after
+        // set_option(). Otherwise, garbage bytes get sent to the serial port
+        // durring set_option() which interfere with the Linkbot bootloader. 
+        // EDIT: We have found the emitting a log message seems to fix this
+        // issue more absolutely than using tcflush(). Why? Who knows.
+        #ifdef __MACH__
+        BOOST_LOG(lg) << "Setting serial port option...";
+        //tcflush(sp.lowest_layer().native_handle(), TCIOFLUSH);
+        #endif
         sp.set_option(value, ec);
+        #ifdef __MACH__
+        //tcflush(sp.lowest_layer().native_handle(), TCIOFLUSH);
+        #endif
     } while (maxAttempts > 0
              && ++attempts != maxAttempts
              && ec);
     if (attempts > 1) {
-        boost::log::sources::logger lg;
         BOOST_LOG(lg) << "set serial option after " << attempts << " attempts";
     }
     if (ec) {
