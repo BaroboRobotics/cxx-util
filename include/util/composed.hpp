@@ -101,6 +101,8 @@ public:
 
     template <class... Args>
     void operator() (Args&&... args) {
+        // An assertion failure here often means you forgot a yield macro in
+        // your coroutine.
         assert(m);
         (*m)(std::move(*this), std::forward<Args>(args)...);
         // If our coroutine base class is complete, we don't need our state
