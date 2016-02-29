@@ -30,7 +30,7 @@ void Session::setProperty (const std::string& key, const std::string& value) {
     }
 }
 
-void Session::log (const std::string& line) {
+void Session::log (const std::string& text) {
     // PMSIHANDLE calls MsiCloseHandle() on destruction
     auto record = PMSIHANDLE{MsiCreateRecord(1)};
     if (!record) { throw std::runtime_error{"MsiCreateRecord failed"}; }
@@ -38,11 +38,38 @@ void Session::log (const std::string& line) {
     auto err = MsiRecordSetStringA(record, 0, "Log: [1]");
     if (err != ERROR_SUCCESS) { throw Error{"MsiRecordSetString", err}; }
 
-    err = MsiRecordSetStringA(record, 1, line.data());
+    err = MsiRecordSetStringA(record, 1, text.data());
     if (err != ERROR_SUCCESS) { throw Error{"MsiRecordSetString", err}; }
 
     auto rc = MsiProcessMessage(mHandle, INSTALLMESSAGE_INFO, record);
     if (rc != IDOK) { throw std::runtime_error{"MsiProcessMessage failed"}; }
+}
+
+void Session::messageBoxOk (const std::string& text) {
+    // PMSIHANDLE calls MsiCloseHandle() on destruction
+    auto record = PMSIHANDLE{MsiCreateRecord(0)};
+    if (!record) { throw std::runtime_error{"MsiCreateRecord failed"}; }
+
+    auto err = MsiRecordSetStringA(record, 0, text.data());
+    if (err != ERROR_SUCCESS) { throw Error{"MsiRecordSetString", err}; }
+
+    auto rc = MsiProcessMessage(mHandle, INSTALLMESSAGE(INSTALLMESSAGE_ERROR + MB_OK), record);
+    if (rc != IDOK) { throw std::runtime_error{"MsiProcessMessage failed"}; }
+}
+
+Session::Button Session::messageBoxOkCancel (const std::string& text) {
+    // PMSIHANDLE calls MsiCloseHandle() on destruction
+    auto record = PMSIHANDLE{MsiCreateRecord(0)};
+    if (!record) { throw std::runtime_error{"MsiCreateRecord failed"}; }
+
+    auto err = MsiRecordSetStringA(record, 0, text.data());
+    if (err != ERROR_SUCCESS) { throw Error{"MsiRecordSetString", err}; }
+
+    auto rc = MsiProcessMessage(mHandle,
+        INSTALLMESSAGE(INSTALLMESSAGE_ERROR + MB_OKCANCEL), record);
+    if (rc == IDCANCEL) { return Button::CANCEL; }
+    if (rc != IDOK) { throw std::runtime_error{"MsiProcessMessage failed"}; }
+    return Button::OK;
 }
 
 }}} // util::windows::msi
