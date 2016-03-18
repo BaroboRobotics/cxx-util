@@ -47,7 +47,7 @@ using Dtor = void(*)(void*);
  *
  * Variant values themselves (like v, in the example), are move-only, even if
  * their bounded types support copy construction/assignment. This restriction
- * simplifies the implementation. 
+ * simplifies the implementation.
  *
  * The Variant type does not support the concept of nullability, and will not
  * automatically default-construct a value even if one of its bounded types is
