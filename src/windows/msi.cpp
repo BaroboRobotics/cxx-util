@@ -42,7 +42,7 @@ void Session::log (const std::string& text) {
     if (err != ERROR_SUCCESS) { throw Error{"MsiRecordSetString", err}; }
 
     auto rc = MsiProcessMessage(mHandle, INSTALLMESSAGE_INFO, record);
-    if (rc != IDOK) { throw std::runtime_error{"MsiProcessMessage failed"}; }
+    if (rc == -1) { throw std::runtime_error{"MsiProcessMessage failed"}; }
 }
 
 void Session::messageBoxOk (const std::string& text) {
@@ -54,7 +54,7 @@ void Session::messageBoxOk (const std::string& text) {
     if (err != ERROR_SUCCESS) { throw Error{"MsiRecordSetString", err}; }
 
     auto rc = MsiProcessMessage(mHandle, INSTALLMESSAGE(INSTALLMESSAGE_ERROR + MB_OK), record);
-    if (rc != IDOK) { throw std::runtime_error{"MsiProcessMessage failed"}; }
+    if (rc == -1) { throw std::runtime_error{"MsiProcessMessage failed"}; }
 }
 
 Session::Button Session::messageBoxOkCancel (const std::string& text) {
@@ -68,7 +68,7 @@ Session::Button Session::messageBoxOkCancel (const std::string& text) {
     auto rc = MsiProcessMessage(mHandle,
         INSTALLMESSAGE(INSTALLMESSAGE_ERROR + MB_OKCANCEL), record);
     if (rc == IDCANCEL) { return Button::CANCEL; }
-    if (rc != IDOK) { throw std::runtime_error{"MsiProcessMessage failed"}; }
+    if (rc == -1) { throw std::runtime_error{"MsiProcessMessage failed"}; }
     return Button::OK;
 }
 
