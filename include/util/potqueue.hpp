@@ -10,6 +10,7 @@ class PotQueue {
 public:
     PotQueue() {}
     virtual volatile T& at (size_t index) volatile { return mRingbuffer.at(index); }
+    size_t capacity() const { return mRingbuffer.capacity(); }
     size_t size() volatile const { return mRingbuffer.size(); }
     bool empty () const { return mRingbuffer.empty(); }
     bool empty () volatile const { return mRingbuffer.empty(); }
