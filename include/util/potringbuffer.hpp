@@ -14,6 +14,10 @@ class PotRingbuffer {
 
 public:
     PotRingbuffer() {}
+    /* Capacity of the ringbuffer */
+    size_t capacity () const {
+        return N;
+    }
     /* Number of elements in ringbuffer. */
     size_t size () volatile const {
         return full() ? N : (mEnd - mBegin) & (N - 1);
