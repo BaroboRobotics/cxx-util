@@ -1,5 +1,6 @@
 #include <util/composed.hpp>
 #include <util/iothread.hpp>
+#include <util/asynccompletion.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/yield.hpp> // define reenter, yield, and fork
@@ -57,7 +58,7 @@ struct EchoOp {
 template <class Stream, class CompletionToken>
 BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, void(error_code))
 asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
-    asio::detail::async_result_init<
+    util::AsyncCompletion<
         CompletionToken, void(error_code)
     > init { forward<CompletionToken>(token) };
 
