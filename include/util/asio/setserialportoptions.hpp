@@ -1,5 +1,5 @@
-#ifndef UTIL_SETSERIALPORTOPTIONS_HPP
-#define UTIL_SETSERIALPORTOPTIONS_HPP
+#ifndef UTIL_ASIO_SETSERIALPORTOPTIONS_HPP
+#define UTIL_ASIO_SETSERIALPORTOPTIONS_HPP
 
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/io_service.hpp>
@@ -41,7 +41,7 @@ void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int m
         ec = boost::system::error_code{};
         // On Mac OSX 10.11, we have to flush the serial port before and after
         // set_option(). Otherwise, garbage bytes get sent to the serial port
-        // durring set_option() which interfere with the Linkbot bootloader. 
+        // during set_option() which interfere with the Linkbot bootloader.
         // EDIT: We have found the emitting a log message seems to fix this
         // issue more absolutely than using tcflush(). Why? Who knows.
         #ifdef __MACH__

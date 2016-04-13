@@ -1,12 +1,11 @@
-#ifndef UTIL_COMPOSED_HPP
-#define UTIL_COMPOSED_HPP
+#ifndef UTIL_ASIO_COMPOSED_HPP
+#define UTIL_ASIO_COMPOSED_HPP
 
-#include <util/asio_handler_hooks.hpp>
+#include <util/asio/asio_handler_hooks.hpp>
 #include <util/applytuple.hpp>
 
 #include <boost/asio/coroutine.hpp>
 #include <boost/smart_ptr/intrusive_ptr.hpp>
-#include <boost/smart_ptr/intrusive_ref_counter.hpp>
 
 #include <boost/system/error_code.hpp>
 

@@ -1,5 +1,5 @@
-#ifndef UTIL_IOTHREAD_HPP
-#define UTIL_IOTHREAD_HPP
+#ifndef UTIL_ASIO_IOTHREAD_HPP
+#define UTIL_ASIO_IOTHREAD_HPP
 
 #include <boost/asio/io_service.hpp>
 
