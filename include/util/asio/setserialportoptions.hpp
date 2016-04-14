@@ -1,7 +1,6 @@
 #ifndef UTIL_ASIO_SETSERIALPORTOPTIONS_HPP
 #define UTIL_ASIO_SETSERIALPORTOPTIONS_HPP
 
-#include <boost/asio/async_result.hpp>
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/serial_port.hpp>
 #include <boost/asio/steady_timer.hpp>
