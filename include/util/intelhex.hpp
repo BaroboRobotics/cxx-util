@@ -10,6 +10,8 @@
 
 #include <boost/fusion/adapted.hpp>
 
+#include <iostream>
+
 // Adapt Blob to be a Fusion sequence so we can use the Phoenix at_c lazy
 // accessor in Spirit.Qi semantic actions.
 BOOST_FUSION_ADAPT_ADT(util::Blob,
@@ -41,7 +43,7 @@ struct Grammar : qi::grammar<Iter, qi::locals<Blob::Address>, std::list<Blob>()>
     // An extended segment address record synthesizes a base address.
     qi::rule<Iter, Blob::Address()> extendedSegmentAddress;
 
-    Grammar () : Grammar::base_type(start) {
+    Grammar () : Grammar::base_type(start, "intelhex") {
         // Parse a 4-digit hexadecimal number into an Address. Addresses are
         // always 16-bits wide in a hex file, but they can be up to 20 bits
         // wide after adding the segment base address from an extended segment
@@ -64,12 +66,15 @@ struct Grammar : qi::grammar<Iter, qi::locals<Blob::Address>, std::list<Blob>()>
         // with an epsilon (empty) parser so we can initialize _a, the base
         // address. An epsilon parser's semantic action must return true or
         // else the match fails.
+        start.name("start");
         start = qi::eps[(_a = 0), true]
             >> *(data(_a)[push_back(_val, _1)]
                 | extendedSegmentAddress[_a = _1])
-            >> end;
+            >> end
+            > qi::eoi;
 
         // Every record begins with a : and ends with a CRLF.
+        data.name("data");
         data = ':'
             >> byte[_a = _1]                        // length of payload
             >> address[at_c<0>(_val) = _1 + _r1]    // destination address of payload
@@ -78,6 +83,7 @@ struct Grammar : qi::grammar<Iter, qi::locals<Blob::Address>, std::list<Blob>()>
             > byte                                  // checksum
             > qi::eol;
 
+        end.name("end");
         end = ':'
             >> byte(0)     // length of payload
             >> address(0)  // ignored
@@ -85,6 +91,7 @@ struct Grammar : qi::grammar<Iter, qi::locals<Blob::Address>, std::list<Blob>()>
             > byte(0xff)   // checksum
             > qi::eol;
 
+        extendedSegmentAddress.name("extendedSegmentAddress");
         extendedSegmentAddress = ':'
             >> byte(2)                  // length of payload
             >> address(0)               // ignored
@@ -92,7 +99,33 @@ struct Grammar : qi::grammar<Iter, qi::locals<Blob::Address>, std::list<Blob>()>
             > address[_val = _1 << 4]   // bits 19-4 of the base address
             > byte                      // checksum
             > qi::eol;
+
+        using ErrorHandlerArgs = boost::fusion::vector<
+            Iter&, const Iter&, const Iter&, const qi::info&>;
+
+        qi::on_error<qi::fail>(start, [](ErrorHandlerArgs args,
+            decltype(start)::context_type&, qi::error_handler_result&) {
+            std::cout << "Expected '" << at_c<3>(args) << "' here: '"
+                << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
+        });
+        qi::on_error<qi::fail>(data, [](ErrorHandlerArgs args,
+            decltype(data)::context_type&, qi::error_handler_result&) {
+            std::cout << "Expected '" << at_c<3>(args) << "' here: '"
+                << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
+        });
+        qi::on_error<qi::fail>(end, [](ErrorHandlerArgs args,
+            decltype(end)::context_type&, qi::error_handler_result&) {
+            std::cout << "Expected '" << at_c<3>(args) << "' here: '"
+                << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
+        });
+        qi::on_error<qi::fail>(extendedSegmentAddress, [](ErrorHandlerArgs args,
+            decltype(extendedSegmentAddress)::context_type&, qi::error_handler_result&) {
+            std::cout << "Expected '" << at_c<3>(args) << "' here: '"
+                << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
+        });
     }
+
+
 };
 
 } // intelhex
