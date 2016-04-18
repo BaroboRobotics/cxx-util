@@ -33,12 +33,8 @@ public:
 
     void destroy (implementation_type& impl) {
         auto ec = boost::system::error_code{};
-        close(impl, ec);
-        impl.reset();
-    }
-
-    void close (implementation_type& impl, boost::system::error_code& ec) {
         impl->close(ec);
+        impl.reset();
     }
 
     template <class CompletionToken>
@@ -61,8 +57,46 @@ struct TransparentIoObject : boost::asio::basic_io_object<TransparentService<Imp
     explicit TransparentIoObject (boost::asio::io_service& ios)
         : boost::asio::basic_io_object<TransparentService<Impl>>(ios)
     {}
+
+    TransparentIoObject (const TransparentIoObject&) = delete;
+    TransparentIoObject& operator= (const TransparentIoObject&) = delete;
+
+    TransparentIoObject (TransparentIoObject&&) = default;
+    TransparentIoObject& operator= (TransparentIoObject&&) = default;
+
+    void close () {
+        boost::system::error_code ec;
+        close(ec);
+        if (ec) {
+            throw boost::system::system_error(ec);
+        }
+    }
+
+    void close (boost::system::error_code& ec) {
+        this->get_implementation()->close(ec);
+    }
 };
 
 } // namespace util
+
+// Define an asynchronous method in the body of an IO object. All arguments will be forwarded
+// except for the last, which is the completion token. The completion token is transformed into a
+// potentially service-specific completion token before being forwarded to the implementation of
+// the IO object.
+#define UTIL_ASIO_DECL_ASYNC_METHOD(methodName) \
+public: \
+    template <class... Args, class Indices = util::make_index_sequence_t<sizeof...(Args) - 1>> \
+    auto methodName (Args&&... args) { \
+        static_assert(sizeof...(Args) > 0, "Asynchronous operations need at least one argument"); \
+        return methodName##Impl(std::forward_as_tuple(std::forward<Args>(args)...), Indices{}); \
+    } \
+private: \
+    template <class Tuple, size_t... NMinusOneIndices> \
+    auto methodName##Impl (Tuple&& t, util::index_sequence<NMinusOneIndices...>&&) { \
+        return this->get_implementation()->methodName( \
+            std::get<NMinusOneIndices>(t)..., \
+            this->get_service().transformCompletionToken( \
+                std::get<std::tuple_size<typename std::decay<Tuple>::type>::value - 1>(t))); \
+    }
 
 #endif
