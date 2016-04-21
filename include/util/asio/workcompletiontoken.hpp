@@ -1,7 +1,7 @@
 #ifndef UTIL_ASIO_WORKCOMPLETIONTOKEN_HPP
 #define UTIL_ASIO_WORKCOMPLETIONTOKEN_HPP
 
-#include <util/asio/asio_handler_hooks.hpp>
+#include <util/asio/handler_hooks.hpp>
 
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/async_result.hpp>
@@ -9,7 +9,7 @@
 #include <utility>
 #include <functional>
 
-namespace util {
+namespace util { namespace asio {
 
 // Wrap another asynchronous completion token, along with a reference to an io_service. When this
 // completion token is converted to a handler object (e.g., through util::AsyncCompletion), a work
@@ -46,6 +46,10 @@ public:
         , mHandler(token.original())
     {}
 
+    // Implicitly generated copy/move ctors/operations are fine. If the compiler tells you the copy
+    // constructor is deleted, it's likely because mHandler is noncopyable. Check for raw
+    // references in std::bind expressions (they must be wrapped in std::ref or std::cref).
+
     template <class... Params>
     void operator() (Params&&... ps) {
         mWork.get_io_service().dispatch(std::bind(mHandler, std::forward<Params>(ps)...));
@@ -54,20 +58,20 @@ public:
     WrappedHandlerType& original () { return mHandler; }
 
     friend void* asio_handler_allocate (size_t size, WorkHandler* self) {
-        return asio_handler_hooks::allocate(size, self->original());
+        return handler_hooks::allocate(size, self->original());
     }
 
     friend void asio_handler_deallocate (void* pointer, size_t size, WorkHandler* self) {
-        asio_handler_hooks::deallocate(pointer, size, self->original());
+        handler_hooks::deallocate(pointer, size, self->original());
     }
 
     template <class Function>
     friend void asio_handler_invoke (Function&& f, WorkHandler* self) {
-        asio_handler_hooks::invoke(std::forward<Function>(f), self->original());
+        handler_hooks::invoke(std::forward<Function>(f), self->original());
     }
 
     friend bool asio_handler_is_continuation (WorkHandler* self) {
-        return asio_handler_hooks::is_continuation(self->original());
+        return handler_hooks::is_continuation(self->original());
     }
 
 private:
@@ -75,18 +79,18 @@ private:
     WrappedHandlerType mHandler;
 };
 
-} // namespace util
+}} // namespace util::asio
 
 namespace boost { namespace asio {
 
 template <class CompletionToken, class Signature>
-struct async_result<::util::WorkHandler<CompletionToken, Signature>> {
+struct async_result<::util::asio::WorkHandler<CompletionToken, Signature>> {
     using WrappedHandlerType
-        = typename ::util::WorkHandler<CompletionToken, Signature>::WrappedHandlerType;
+        = typename ::util::asio::WorkHandler<CompletionToken, Signature>::WrappedHandlerType;
 
 public:
     using type = typename async_result<WrappedHandlerType>::type;
-    async_result (::util::WorkHandler<CompletionToken, Signature>& handler)
+    async_result (::util::asio::WorkHandler<CompletionToken, Signature>& handler)
         : mResult(handler.original())
     {}
 
@@ -97,8 +101,8 @@ private:
 };
 
 template <class CompletionToken, class Signature>
-struct handler_type<::util::WorkCompletionToken<CompletionToken>, Signature> {
-    using type = ::util::WorkHandler<CompletionToken, Signature>;
+struct handler_type<::util::asio::WorkCompletionToken<CompletionToken>, Signature> {
+    using type = ::util::asio::WorkHandler<CompletionToken, Signature>;
 };
 
 }} // namespace boost::asio

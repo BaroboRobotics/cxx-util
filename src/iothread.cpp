@@ -8,7 +8,7 @@
 
 #include <cstdlib>
 
-namespace util {
+namespace util { namespace asio {
 
 IoThread::IoThread ()
     : mWork(boost::in_place(std::ref(mContext)))
@@ -41,4 +41,4 @@ std::shared_ptr<IoThread> IoThread::getGlobal () {
     return p;
 }
 
-} // namespace util
+}} // namespace util::asio

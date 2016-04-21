@@ -1,13 +1,12 @@
-#ifndef UTIL_ASIO_ASIO_HANDLER_HOOKS_HPP
-#define UTIL_ASIO_ASIO_HANDLER_HOOKS_HPP
+#ifndef UTIL_ASIO_HANDLER_HOOKS_HPP
+#define UTIL_ASIO_HANDLER_HOOKS_HPP
 
 #include <memory>
 
-namespace util {
-namespace asio_handler_hooks {
+namespace util { namespace asio { namespace handler_hooks {
 
 // The asio_handler_* functions need to be called from a namespace in which
-// they are not defined. The asio_handler_hooks namespace exists for that
+// they are not defined. The handler_hooks namespace exists for that
 // purpose.
 
 template <class Context>
@@ -34,7 +33,6 @@ inline bool is_continuation (Context& context) {
     return asio_handler_is_continuation(std::addressof(context));
 }
 
-} // namespace asio_handler_hooks
-} // namespace util
+}}} // namespace util::asio::handler_hooks
 
 #endif

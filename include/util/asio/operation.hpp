@@ -1,7 +1,7 @@
-#ifndef UTIL_ASIO_COMPOSED_HPP
-#define UTIL_ASIO_COMPOSED_HPP
+#ifndef UTIL_ASIO_OPERATION_HPP
+#define UTIL_ASIO_OPERATION_HPP
 
-#include <util/asio/asio_handler_hooks.hpp>
+#include <util/asio/handler_hooks.hpp>
 #include <util/applytuple.hpp>
 
 #include <boost/asio/coroutine.hpp>
@@ -17,8 +17,7 @@
 
 #include <cassert>
 
-namespace util {
-namespace composed {
+namespace util { namespace asio {
 
 template <class Base, class Handler>
 class OperationState : public Base {
@@ -52,7 +51,7 @@ public:
 
             // Release the operation state
             self->~OperationState();
-            asio_handler_hooks::deallocate(self, sizeof(OperationState), h);
+            handler_hooks::deallocate(self, sizeof(OperationState), h);
 
             // Call the operation's completion handler
             applyTuple(std::move(h), std::move(result));
@@ -68,12 +67,12 @@ template <class Base, class Handler, class... Args>
 boost::intrusive_ptr<OperationState<Base, typename std::decay<Handler>::type>>
 makeOperationState (Handler&& h, Args&&... args) {
     using State = OperationState<Base, typename std::decay<Handler>::type>;
-    auto vp = asio_handler_hooks::allocate(sizeof(State), h);
+    auto vp = handler_hooks::allocate(sizeof(State), h);
     try {
         return new (vp) State(std::forward<Handler>(h), std::forward<Args>(args)...);
     }
     catch (...) {
-        asio_handler_hooks::deallocate(vp, sizeof(State), h);
+        handler_hooks::deallocate(vp, sizeof(State), h);
         throw;
     }
 }
@@ -119,20 +118,20 @@ public:
     // Inherit the allocation, invocation, and continuation strategies from the
     // operation's completion handler.
     friend void* asio_handler_allocate (size_t size, Operation* self) {
-        return asio_handler_hooks::allocate(size, self->m->handler());
+        return handler_hooks::allocate(size, self->m->handler());
     }
 
     friend void asio_handler_deallocate (void* pointer, size_t size, Operation* self) {
-        asio_handler_hooks::deallocate(pointer, size, self->m->handler());
+        handler_hooks::deallocate(pointer, size, self->m->handler());
     }
 
     template <class Function>
     friend void asio_handler_invoke (Function&& f, Operation* self) {
-        asio_handler_hooks::invoke(std::forward<Function>(f), self->m->handler());
+        handler_hooks::invoke(std::forward<Function>(f), self->m->handler());
     }
 
     friend bool asio_handler_is_continuation (Operation* self) {
-        return asio_handler_hooks::is_continuation(self->m->handler());
+        return handler_hooks::is_continuation(self->m->handler());
     }
 
 private:
@@ -146,7 +145,6 @@ makeOperation (Handler&& h, Args&&... args) {
     return makeOperationState<Base>(std::forward<Handler>(h), std::forward<Args>(args)...);
 }
 
-} // namespace composed
-} // namespace util
+}} // namespace util::asio
 
 #endif

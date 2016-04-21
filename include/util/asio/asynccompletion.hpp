@@ -5,7 +5,7 @@
 
 #include <type_traits>
 
-namespace util {
+namespace util { namespace asio {
 
 // This is basically just async_result_init/async_completion from Asio.
 template <class CompletionToken, class Signature>
@@ -20,6 +20,6 @@ struct AsyncCompletion {
     boost::asio::async_result<HandlerType> result;
 };
 
-} // namespace util
+}} // namespace util::asio
 
 #endif

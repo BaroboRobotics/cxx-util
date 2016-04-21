@@ -19,7 +19,7 @@
 #include <unistd.h>
 #endif
 
-namespace util {
+namespace util { namespace asio {
 
 // How long we pause after opening the dongle's device path before setting the
 // serial line options. Mac serial ports require some strategic timing
@@ -85,6 +85,6 @@ inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud, boost:
     }
 }
 
-} // namespace util
+}} // namespace util::asio
 
 #endif

@@ -1,6 +1,6 @@
-#include <util/composed.hpp>
-#include <util/iothread.hpp>
-#include <util/asynccompletion.hpp>
+#include <util/asio/operation.hpp>
+#include <util/asio/iothread.hpp>
+#include <util/asio/asynccompletion.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/yield.hpp> // define reenter, yield, and fork
@@ -58,17 +58,17 @@ struct EchoOp {
 template <class Stream, class CompletionToken>
 BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, void(error_code))
 asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
-    util::AsyncCompletion<
+    util::asio::AsyncCompletion<
         CompletionToken, void(error_code)
     > init { forward<CompletionToken>(token) };
 
-    util::composed::makeOperation<EchoOp<Stream>>(std::move(init.handler), stream, echoes)();
+    util::asio::makeOperation<EchoOp<Stream>>(std::move(init.handler), stream, echoes)();
 
     return init.result.get();
 }
 
 int main () try {
-    util::IoThread io;
+    util::asio::IoThread io;
 
     auto endpoint = asio::ip::tcp::endpoint{asio::ip::tcp::v4(), 6666};
 

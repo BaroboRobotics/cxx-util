@@ -2,13 +2,14 @@
 #define UTIL_ASIO_TRANSPARENTSERVICE_HPP
 
 #include <util/asio/workcompletiontoken.hpp>
+#include <util/index_sequence.hpp>
 
 #include <boost/asio/io_service.hpp>
 
 #include <memory>
 #include <utility>
 
-namespace util {
+namespace util { namespace asio {
 
 // A class which meets the minimum requirements of an Asio I/O object service. It uses the same
 // io_service event loop passed in to it as the event loop for the I/O object implementation, thus
@@ -77,7 +78,7 @@ struct TransparentIoObject : boost::asio::basic_io_object<TransparentService<Imp
     }
 };
 
-} // namespace util
+}} // namespace util::asio
 
 // Define an asynchronous method in the body of an IO object. All arguments will be forwarded
 // except for the last, which is the completion token. The completion token is transformed into a

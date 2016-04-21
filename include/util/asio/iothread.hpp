@@ -8,7 +8,7 @@
 #include <future>
 #include <memory>
 
-namespace util {
+namespace util { namespace asio {
 
 class IoThread {
 public:
@@ -30,6 +30,6 @@ private:
     std::future<size_t> mJoin;
 };
 
-} // namespace baromesh
+}} // namespace util::asio
 
 #endif
