@@ -103,23 +103,23 @@ struct Grammar : qi::grammar<Iter, qi::locals<Blob::Address>, std::list<Blob>()>
         using ErrorHandlerArgs = boost::fusion::vector<
             Iter&, const Iter&, const Iter&, const qi::info&>;
 
-        qi::on_error<qi::fail>(start, [](ErrorHandlerArgs args,
-            decltype(start)::context_type&, qi::error_handler_result&) {
+        qi::on_error<qi::fail>(start,
+        [](ErrorHandlerArgs args, auto&, qi::error_handler_result&) {
             std::cout << "Expected '" << at_c<3>(args) << "' here: '"
                 << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
         });
-        qi::on_error<qi::fail>(data, [](ErrorHandlerArgs args,
-            decltype(data)::context_type&, qi::error_handler_result&) {
+        qi::on_error<qi::fail>(data,
+        [](ErrorHandlerArgs args, auto&, qi::error_handler_result&) {
             std::cout << "Expected '" << at_c<3>(args) << "' here: '"
                 << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
         });
-        qi::on_error<qi::fail>(end, [](ErrorHandlerArgs args,
-            decltype(end)::context_type&, qi::error_handler_result&) {
+        qi::on_error<qi::fail>(end,
+        [](ErrorHandlerArgs args, auto&, qi::error_handler_result&) {
             std::cout << "Expected '" << at_c<3>(args) << "' here: '"
                 << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
         });
-        qi::on_error<qi::fail>(extendedSegmentAddress, [](ErrorHandlerArgs args,
-            decltype(extendedSegmentAddress)::context_type&, qi::error_handler_result&) {
+        qi::on_error<qi::fail>(extendedSegmentAddress,
+        [](ErrorHandlerArgs args, auto&, qi::error_handler_result&) {
             std::cout << "Expected '" << at_c<3>(args) << "' here: '"
                 << std::string(at_c<2>(args), at_c<1>(args)) << "'\n";
         });
