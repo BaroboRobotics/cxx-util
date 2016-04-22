@@ -1,18 +1,14 @@
-#ifndef UTIL_ASIO_QUEUE_HPP
-#define UTIL_ASIO_QUEUE_HPP
+#ifndef UTIL_PRODUCERCONSUMERQUEUE_HPP
+#define UTIL_PRODUCERCONSUMERQUEUE_HPP
 
 #include <util/applytuple.hpp>
-
-#include <util/asio/asynccompletion.hpp>
 
 #include <functional>
 #include <queue>
 #include <tuple>
 #include <utility>
 
-#include <cassert>
-
-namespace util { namespace asio {
+namespace util {
 
 // A queue supporting three operations, consume, produce, and clear.
 //   consume: enqueue a function object to be invoked when data are produced
@@ -29,18 +25,12 @@ namespace util { namespace asio {
 // for later invocation on a future function object. If produce is called when a consuming function
 // object is waiting, that function object is immediately invoked.
 template <class... Data>
-class Queue {
+class ProducerConsumerQueue {
 public:
-    template <class CompletionToken>
-    void asyncConsume (CompletionToken&& token) {
-        util::asio::AsyncCompletion<
-            CompletionToken, void(Data...)
-        > init { std::forward<CompletionToken>(token) };
-
-        mHandlers.emplace(std::move(init.handler));
+    template <class H>
+    void consume (H&& handler) {
+        mHandlers.emplace(std::forward<H>(handler));
         post();
-
-        return init.result.get();
     }
 
     template <class... Ds>
@@ -49,16 +39,8 @@ public:
         post();
     }
 
-    template <class H, class... Ds>
-    void clear (H&& defaultHandler, Ds&&... defaultData) {
-        while (mHandlers.size() < mData.size()) {
-            mHandlers.push(defaultHandler);
-        }
-        while (mData.size() < mHandlers.size()) {
-            mData.push(std::make_tuple(std::forward<Ds>(defaultData)...));
-        }
-        post();
-        assert(mHandlers.empty() && mData.empty());
+    int depth () const {
+        return mData.size() - mHandlers.size();
     }
 
 private:
@@ -79,6 +61,6 @@ private:
     std::queue<DataTuple> mData;
 };
 
-}} // namespace util::asio
+} // namespace util
 
 #endif
