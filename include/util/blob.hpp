@@ -2,6 +2,7 @@
 #define UTIL_BLOB_HPP
 
 #include <exception>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
