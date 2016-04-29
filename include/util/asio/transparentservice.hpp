@@ -5,6 +5,7 @@
 #include <util/index_sequence.hpp>
 
 #include <boost/asio/io_service.hpp>
+#include <boost/asio/basic_io_object.hpp>
 
 #include <memory>
 #include <utility>

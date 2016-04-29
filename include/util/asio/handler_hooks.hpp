@@ -1,6 +1,10 @@
 #ifndef UTIL_ASIO_HANDLER_HOOKS_HPP
 #define UTIL_ASIO_HANDLER_HOOKS_HPP
 
+#include <boost/asio/handler_alloc_hook.hpp>
+#include <boost/asio/handler_invoke_hook.hpp>
+#include <boost/asio/handler_continuation_hook.hpp>
+
 #include <memory>
 
 namespace util { namespace asio { namespace handler_hooks {
