@@ -4,6 +4,7 @@
 #include <boost/asio/async_result.hpp>
 
 #include <type_traits>
+#include <utility>
 
 namespace util { namespace asio {
 
