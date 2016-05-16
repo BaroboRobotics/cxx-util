@@ -1,8 +1,8 @@
 #ifndef UTIL_VARIANT_HPP
 #define UTIL_VARIANT_HPP
 
-#include "util/any.hpp"
-#include "util/min_max.hpp"
+#include <util/any.hpp>
+#include <util/min_max.hpp>
 
 #include <boost/predef.h> // to check for gcc < 4.8
 

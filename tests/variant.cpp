@@ -1,4 +1,4 @@
-#include "util/variant.hpp"
+#include <util/variant.hpp>
 
 #include <memory>
 
@@ -22,7 +22,7 @@ struct AssertIdEquals {
 int main () {
     using Var = util::Variant<A, B>;
     {
-        // Not DefaultConstructible 
+        // Not DefaultConstructible
         //Var v;
         //Var u { };
     }

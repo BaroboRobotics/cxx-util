@@ -1,7 +1,7 @@
 #ifndef POTQUEUE_HPP
 #define POTQUEUE_HPP
 
-#include "potringbuffer.hpp"
+#include <util/potringbuffer.hpp>
 
 namespace util {
 
