@@ -12,9 +12,9 @@
 #include <boost/log/sources/logger.hpp>
 #include <boost/log/sources/record_ostream.hpp>
 
-using namespace std::placeholders;
+namespace util { namespace asio { namespace ws {
 
-namespace baromesh { namespace websocket {
+using namespace std::placeholders;
 
 typedef void ReceiveHandlerSignature(boost::system::error_code, size_t);
 typedef void SendHandlerSignature(boost::system::error_code);
@@ -168,6 +168,6 @@ public:
     UTIL_ASIO_DECL_ASYNC_METHOD(asyncReceive)
 };
 
-}} // namespace baromesh::websocket
+}}} // namespace util::asio::ws
 
 #endif

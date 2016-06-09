@@ -12,19 +12,18 @@ if(AVR)
     add_library(cxx-util INTERFACE)
 else()
     set(Boost_USE_STATIC_LIBS ON)
-    find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem thread log date_time regex)
+    find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem thread log date_time regex program_options)
     find_package(websocketpp 0.7.0 REQUIRED)
-    message(STATUS "websocketpp at: ${WEBSOCKETPP_INCLUDE_DIR}")
-    set(sources
-        src/iothread.cpp
-    )
 
+    set(sources src/iothread.cpp src/log.cpp)
     add_library(cxx-util STATIC ${sources})
     set_target_properties(cxx-util PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
-    target_link_libraries(cxx-util PUBLIC Boost::filesystem Boost::log)
+    target_link_libraries(cxx-util PUBLIC Boost::filesystem Boost::log Boost::program_options)
     target_include_directories(cxx-util PRIVATE include PUBLIC
         ${WEBSOCKETPP_INCLUDE_DIR}
     )
+    target_compile_definitions(cxx-util
+        PUBLIC _WEBSOCKETPP_NO_CPP11_SYSTEM_ERROR_ _WEBSOCKETPP_CPP11_RANDOM_DEVICE_)
 endif()
 
 if(CXXUTIL_BUILD_TESTS)

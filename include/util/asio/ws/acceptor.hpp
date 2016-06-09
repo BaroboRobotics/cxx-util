@@ -5,8 +5,8 @@
 #include <util/asio/asynccompletion.hpp>
 #include <util/asio/transparentservice.hpp>
 
-#include <baromesh/websocketlogger.hpp>
-#include <baromesh/websocketmessagequeue.hpp>
+#include <util/asio/ws/logger.hpp>
+#include <util/asio/ws/messagequeue.hpp>
 
 #include <boost/log/sources/record_ostream.hpp>
 #include <boost/log/sources/logger.hpp>

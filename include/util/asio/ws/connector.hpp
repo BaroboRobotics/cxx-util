@@ -4,8 +4,8 @@
 #include <util/asio/asynccompletion.hpp>
 #include <util/asio/transparentservice.hpp>
 
-#include <baromesh/websocketlogger.hpp>
-#include <baromesh/websocketmessagequeue.hpp>
+#include <util/asio/ws/logger.hpp>
+#include <util/asio/ws/messagequeue.hpp>
 
 #include <boost/log/sources/record_ostream.hpp>
 #include <boost/log/sources/logger.hpp>
@@ -17,7 +17,7 @@
 #include <tuple>
 #include <utility>
 
-namespace baromesh { namespace websocket {
+namespace util { namespace asio { namespace ws {
 
 class ConnectorImpl : public std::enable_shared_from_this<ConnectorImpl> {
 public:
@@ -182,6 +182,6 @@ public:
     UTIL_ASIO_DECL_ASYNC_METHOD(asyncConnect)
 };
 
-}} // namespace baromesh::websocket
+}}} // namespace util::asio::ws
 
 #endif

@@ -12,7 +12,7 @@
 #include <iomanip>
 #include <string>
 
-namespace baromesh { namespace websocket {
+namespace util { namespace asio { namespace ws {
 
 template <typename Concurrency, typename Names>
 class Logger : public ::websocketpp::log::basic<Concurrency, Names> {
@@ -53,6 +53,6 @@ private:
     boost::log::sources::logger mLog;
 };
 
-}} // namespace baromesh::websocket
+}}} // namespace util::asio::ws
 
 #endif // BAROMESH_WEBSOCKETLOGGER_HPP
