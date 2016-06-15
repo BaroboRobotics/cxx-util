@@ -52,7 +52,7 @@ void initialize (std::string appName, const boost::program_options::variables_ma
             << "[" << expr::attr<attrs::local_clock::value_type, util::LogSafely>("TimeStamp") << "]"
             << "[thread=" << expr::attr<attrs::current_thread_id::value_type>("ThreadID") << "]"
             //<< "[" << expr::attr<attrs::named_scope::value_type>("Scope") << "]"
-            << " " << expr::attr<std::string>("Title")
+            << " " << expr::attr<std::string>("Channel")
             << " " << expr::attr<std::string>("Protocol")
             << expr::if_(expr::has_attr<std::string>("SerialId"))[
                 expr::stream << " [SerialId=" << expr::attr<std::string>("SerialId") << "]"

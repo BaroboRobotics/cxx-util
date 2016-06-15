@@ -1,6 +1,9 @@
 #ifndef UTIL_LOG_HPP
 #define UTIL_LOG_HPP
 
+#include <boost/log/sources/severity_channel_logger.hpp>
+#include <boost/log/keywords/channel.hpp>
+
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/variables_map.hpp>
 
@@ -21,6 +24,8 @@ boost::program_options::options_description optionsDescription (boost::optional<
 // Add some common attributes to the logging core and enable sinks as specified
 // by the configuring variables_map.
 void initialize (std::string appName, const boost::program_options::variables_map& conf);
+
+using Logger = boost::log::sources::severity_channel_logger<>;
 
 }} // namespace util::log
 
