@@ -3,7 +3,6 @@
 #include <boost/utility/in_place_factory.hpp>
 
 #include <exception>
-#include <mutex>
 #include <string>
 
 #include <cstdlib>
@@ -26,19 +25,6 @@ IoThread::~IoThread () {
 size_t IoThread::join () {
     mWork = boost::none;
     return mJoin.valid() ? mJoin.get() : 0;
-}
-
-std::shared_ptr<IoThread> IoThread::getGlobal () {
-    static std::mutex mutex;
-    std::lock_guard<std::mutex> lock {mutex};
-
-    static auto wp = std::weak_ptr<IoThread>{};
-    auto p = wp.lock();
-    if (!p) {
-        p = std::make_shared<IoThread>();
-        wp = p;
-    }
-    return p;
 }
 
 }} // namespace util::asio

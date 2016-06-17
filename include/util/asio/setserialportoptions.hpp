@@ -1,12 +1,11 @@
 #ifndef UTIL_ASIO_SETSERIALPORTOPTIONS_HPP
 #define UTIL_ASIO_SETSERIALPORTOPTIONS_HPP
 
+#include <util/log.hpp>
+
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/serial_port.hpp>
 #include <boost/asio/steady_timer.hpp>
-
-#include <boost/log/sources/logger.hpp>
-#include <boost/log/sources/record_ostream.hpp>
 
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
@@ -35,7 +34,7 @@ template <class Option>
 void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int maxAttempts) {
     auto attempts = 0;
     auto ec = boost::system::error_code{};
-    boost::log::sources::logger lg;
+    util::log::Logger lg;
     do {
         ec = boost::system::error_code{};
         // On Mac OSX 10.11, we have to flush the serial port before and after

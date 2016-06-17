@@ -1,5 +1,7 @@
-#ifndef BAROMESH_WEBSOCKETMESSAGEQUEUE_HPP
-#define BAROMESH_WEBSOCKETMESSAGEQUEUE_HPP
+#ifndef UTIL_ASIO_WS_MESSAGEQUEUE_HPP
+#define UTIL_ASIO_WS_MESSAGEQUEUE_HPP
+
+#include <util/log.hpp>
 
 #include <util/producerconsumerqueue.hpp>
 #include <util/asio/asynccompletion.hpp>
@@ -8,9 +10,6 @@
 #include <websocketpp/connection.hpp>
 
 #include <boost/asio/io_service.hpp>
-
-#include <boost/log/sources/logger.hpp>
-#include <boost/log/sources/record_ostream.hpp>
 
 namespace util { namespace asio { namespace ws {
 
@@ -145,7 +144,7 @@ private:
     ConnectionPtr mPtr;
     util::ProducerConsumerQueue<boost::system::error_code, MessagePtr> mReceiveQueue;
 
-    mutable boost::log::sources::logger mLog;
+    mutable util::log::Logger mLog;
 };
 
 template <class Config>

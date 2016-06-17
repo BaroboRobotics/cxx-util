@@ -1,11 +1,10 @@
-#ifndef BAROMESH_WEBSOCKETLOGGER_HPP
-#define BAROMESH_WEBSOCKETLOGGER_HPP
+#ifndef UTIL_ASIO_WS_LOGGER_HPP
+#define UTIL_ASIO_WS_LOGGER_HPP
+
+#include <util/log.hpp>
 
 #include <websocketpp/logger/basic.hpp>
 #include <websocketpp/logger/levels.hpp>
-
-#include <boost/log/sources/logger.hpp>
-#include <boost/log/sources/record_ostream.hpp>
 
 #include <ctime>
 #include <iostream>
@@ -50,7 +49,7 @@ private:
     }
 
     typedef typename base::scoped_lock_type scoped_lock_type;
-    boost::log::sources::logger mLog;
+    util::log::Logger mLog;
 };
 
 }}} // namespace util::asio::ws

@@ -6,7 +6,6 @@
 #include <boost/optional.hpp>
 
 #include <future>
-#include <memory>
 
 namespace util { namespace asio {
 
@@ -14,8 +13,6 @@ class IoThread {
 public:
     IoThread ();
     ~IoThread ();
-
-    static std::shared_ptr<IoThread> getGlobal ();
 
     size_t join ();
 

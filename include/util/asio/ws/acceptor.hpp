@@ -1,15 +1,14 @@
 #ifndef UTIL_ASIO_WS_ACCEPTOR_HPP
 #define UTIL_ASIO_WS_ACCEPTOR_HPP
 
+#include <util/log.hpp>
+
 #include <util/producerconsumerqueue.hpp>
 #include <util/asio/asynccompletion.hpp>
 #include <util/asio/transparentservice.hpp>
 
 #include <util/asio/ws/logger.hpp>
 #include <util/asio/ws/messagequeue.hpp>
-
-#include <boost/log/sources/record_ostream.hpp>
-#include <boost/log/sources/logger.hpp>
 
 #include <websocketpp/server.hpp>
 #include <websocketpp/close.hpp>
@@ -141,7 +140,7 @@ private:
     ::websocketpp::server<Config> mWsServer;
     util::ProducerConsumerQueue<boost::system::error_code, ConnectionPtr> mConnectionQueue;
 
-    mutable boost::log::sources::logger mLog;
+    mutable util::log::Logger mLog;
 };
 
 class Acceptor : public util::asio::TransparentIoObject<AcceptorImpl> {
