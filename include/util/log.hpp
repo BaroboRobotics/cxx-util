@@ -14,14 +14,12 @@
 
 namespace util { namespace log {
 
-// Build and return a description of what command line options the logging
-// system supports. Use the returned value to parse the command line, then pass
-// the generated variables_map to initialize.
 boost::program_options::options_description optionsDescription ();
-
-// Add some common attributes to the logging core and enable sinks as specified
-// by the configuring variables_map.
-void initialize (std::string appName, const boost::program_options::variables_map& conf);
+// Build and return a description of what command line options the logging system supports. Use the
+// returned value to parse the command line -- logging sinks will be automatically configured when
+// boost::program_options::notify() is called.
+//
+// This function also adds some common attributes to the logging core.
 
 using Logger = boost::log::sources::severity_channel_logger<>;
 

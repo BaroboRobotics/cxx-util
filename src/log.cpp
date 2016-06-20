@@ -22,21 +22,15 @@ namespace po = boost::program_options;
 namespace util {
 namespace log {
 
-void initFileSink (const std::string&);
-void initConsoleSink (bool);
-void initSyslogSink (const std::string&);
+namespace {
+    void initFileSink (const std::string&);
+    void initConsoleSink (bool);
+    void initSyslogSink (const std::string&);
+} // anonymous namespace
 
 boost::program_options::options_description optionsDescription () {
     boost::log::add_common_attributes();
-
-    auto core = boost::log::core::get();
-    core->add_global_attribute("Scope", boost::log::attributes::named_scope());
-
-    // Boost.Log sets up a default console sink for us. There is no way to
-    // explicitly disable it, though it is implicitly disabled when a sink is
-    // added. Disable the logging core here and enable the logging core when a
-    // sink is added, so that the default sink is never used.
-    //core->set_logging_enabled(false);
+    boost::log::core::get()->add_global_attribute("Scope", boost::log::attributes::named_scope());
 
     auto opts = po::options_description{"Log options"};
     opts.add_options()
@@ -54,6 +48,8 @@ boost::program_options::options_description optionsDescription () {
     ;
     return opts;
 }
+
+namespace {
 
 boost::log::formatter defaultFormatter () {
     namespace expr = boost::log::expressions;
@@ -93,9 +89,6 @@ void initFileSink (const std::string& logFile) {
         keywords::file_name = absLogFile,
         keywords::auto_flush = true
     )->set_formatter(defaultFormatter());
-
-    auto core = boost::log::core::get();
-    core->set_logging_enabled(true);
 }
 
 void initConsoleSink (bool enabled) {
@@ -106,9 +99,6 @@ void initConsoleSink (bool enabled) {
         std::clog,
         keywords::auto_flush = true
     )->set_formatter(defaultFormatter());
-
-    auto core = boost::log::core::get();
-    core->set_logging_enabled(true);
 }
 
 void initSyslogSink (const std::string& programName) {
@@ -125,9 +115,9 @@ void initSyslogSink (const std::string& programName) {
     auto sink = boost::make_shared<SyslogSink>(backend);
     sink->set_formatter(defaultFormatter());
 
-    auto core = boost::log::core::get();
-    core->add_sink(sink);
-    core->set_logging_enabled(true);
+    boost::log::core::get()->add_sink(sink);
 }
+
+} // anonymous namespace
 
 }} // namespace util::log
