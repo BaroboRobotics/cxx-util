@@ -35,7 +35,7 @@ boost::program_options::options_description optionsDescription () {
     auto opts = po::options_description{"Log options"};
     opts.add_options()
         ("log-file", po::value<std::string>()
-            ->value_name("PATH")
+            ->value_name("<file>")
             ->notifier(&initFileSink), "log to file with given path")
         ("log-console", po::value<bool>()
             ->value_name("0|1")
@@ -43,7 +43,7 @@ boost::program_options::options_description optionsDescription () {
             ->notifier(&initConsoleSink),
             "log to console")
         ("log-syslog", po::value<std::string>()
-            ->value_name("NAME")->notifier(&initSyslogSink),
+            ->value_name("<name>")->notifier(&initSyslogSink),
             "log to syslog with given program name")
     ;
     return opts;
