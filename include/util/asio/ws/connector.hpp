@@ -40,8 +40,8 @@ public:
     using ConnectionPtr = Connection::ptr;
     using MessageQueue = ::baromesh::websocket::MessageQueue<Config>;
 
-    explicit ConnectorImpl (boost::asio::io_service& ios)
-        : mContext(ios)
+    explicit ConnectorImpl (boost::asio::io_service& context)
+        : mContext(context)
     {
         mWsClient.init_asio(&mContext);
         mWsClient.set_access_channels(::websocketpp::log::alevel::none);
@@ -171,8 +171,8 @@ private:
 
 class Connector : public util::asio::TransparentIoObject<ConnectorImpl> {
 public:
-    explicit Connector (boost::asio::io_service& ios)
-        : util::asio::TransparentIoObject<ConnectorImpl>(ios)
+    explicit Connector (boost::asio::io_service& context)
+        : util::asio::TransparentIoObject<ConnectorImpl>(context)
     {
         this->get_implementation()->init();
     }
