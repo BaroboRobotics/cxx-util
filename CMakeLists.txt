@@ -23,7 +23,14 @@ else()
         ${WEBSOCKETPP_INCLUDE_DIR}
     )
     target_compile_definitions(cxx-util
-        PUBLIC _WEBSOCKETPP_NO_CPP11_SYSTEM_ERROR_ _WEBSOCKETPP_CPP11_RANDOM_DEVICE_)
+        PUBLIC
+            _WEBSOCKETPP_NO_CPP11_SYSTEM_ERROR_
+            _WEBSOCKETPP_CPP11_RANDOM_DEVICE_
+            WINVER=0x0600
+            _WIN32_WINNT=0x0600
+            # By explicitly targeting Windows Vista and later at build time, we avoid some painful
+            # linker issues with Boost.Log.
+    )
 endif()
 
 if(CXXUTIL_BUILD_TESTS)
