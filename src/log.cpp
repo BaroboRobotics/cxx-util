@@ -120,4 +120,11 @@ void initSyslogSink (const std::string& programName) {
 
 } // anonymous namespace
 
+namespace _ {
+
+BOOST_LOG_GLOBAL_LOGGER_DEFAULT(
+    defaultAssociatedLogger, boost::log::sources::severity_channel_logger_mt<>)
+
+} // _
+
 }} // namespace util::log
