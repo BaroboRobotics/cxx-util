@@ -1,7 +1,7 @@
 #ifndef UTIL_ASIO_TRANSPARENTSERVICE_HPP
 #define UTIL_ASIO_TRANSPARENTSERVICE_HPP
 
-#include <util/asio/workcompletiontoken.hpp>
+#include <util/asio/transparentcompletiontoken.hpp>
 #include <util/index_sequence.hpp>
 
 #include <boost/asio/io_service.hpp>
@@ -40,10 +40,13 @@ public:
     }
 
     template <class CompletionToken>
-    WorkCompletionToken<typename std::decay<CompletionToken>::type>
-    transformCompletionToken (CompletionToken&& token) {
-        return WorkCompletionToken<typename std::decay<CompletionToken>::type>{
-            get_io_service(), std::forward<CompletionToken>(token)
+    auto transformCompletionToken (implementation_type impl, CompletionToken&& token) {
+        // Make sure the event loop's work flag is set, and the implementation object is alive,
+        // for the duration of the operation.
+        return TransparentCompletionToken<std::decay_t<CompletionToken>>{
+            get_io_service(),
+            std::move(impl),
+            std::forward<CompletionToken>(token)
         };
     }
 
@@ -95,10 +98,12 @@ public: \
 private: \
     template <class Tuple, size_t... NMinusOneIndices> \
     auto methodName##Impl (Tuple&& t, util::index_sequence<NMinusOneIndices...>&&) { \
-        return this->get_implementation()->methodName( \
+        auto impl = this->get_implementation(); \
+        return impl->methodName( \
             std::get<NMinusOneIndices>(t)..., \
             this->get_service().transformCompletionToken( \
-                std::get<std::tuple_size<typename std::decay<Tuple>::type>::value - 1>(t))); \
+                impl, \
+                std::get<std::tuple_size<std::decay_t<Tuple>>::value - 1>(t))); \
     }
 
 #endif
