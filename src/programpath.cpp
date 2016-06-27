@@ -15,7 +15,6 @@ fs::path programPath () {
 } // util
 
 #elif BOOST_OS_WINDOWS
-#error "programPath() is untested on Windows"
 
 #include <vector>
 
