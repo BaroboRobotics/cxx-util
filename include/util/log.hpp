@@ -33,13 +33,13 @@ BOOST_LOG_GLOBAL_LOGGER(defaultAssociatedLogger, boost::log::sources::severity_c
 // be called from any thread.
 
 template <class T>
-constexpr auto& getAssociatedLogger (const T& t) {
+constexpr auto& getAssociatedLogger (T& t) {
     return defaultAssociatedLogger::get();
 }
 
 struct GetAssociatedLogger {
     template <class T>
-    constexpr auto operator() (const T& t) const {
+    constexpr auto& operator() (T& t) const {
         return getAssociatedLogger(std::forward<T>(t));
     }
 };
