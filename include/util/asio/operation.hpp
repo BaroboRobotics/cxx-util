@@ -48,14 +48,12 @@ public:
 
     friend void intrusive_ptr_add_ref (OperationState* self) {
         util::log::Logger lg;
-        BOOST_LOG(lg) << "intrusive_ptr_add_ref(" << self << ")";
         assert(self);
         ++self->mRefs;
     }
 
     friend void intrusive_ptr_release (OperationState* self) {
         util::log::Logger lg;
-        BOOST_LOG(lg) << "intrusive_ptr_release(" << self << ")";
         assert(self);
         if (!--self->mRefs) {
 #if 0
