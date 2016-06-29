@@ -138,6 +138,14 @@ public:
         m->complete(std::forward_as_tuple(results...));
     }
 
+    auto log () {
+        return util::log::getAssociatedLogger(m->handler());
+    }
+
+    friend auto& getAssociatedLogger (Operation& op) {
+        return op.log();
+    }
+
     // Inherit the allocation, invocation, and continuation strategies from the
     // operation's completion handler.
     friend void* asio_handler_allocate (size_t size, Operation* self) {
