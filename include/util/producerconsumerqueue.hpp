@@ -61,6 +61,16 @@ private:
     std::queue<DataTuple> mData;
 };
 
+template <class... Data>
+bool hasSupply (const ProducerConsumerQueue<Data...>& q) {
+    return q.depth() < 0;
+}
+
+template <class... Data>
+bool hasDemand (const ProducerConsumerQueue<Data...>& q) {
+    return q.depth() > 0;
+}
+
 } // namespace util
 
 #endif
