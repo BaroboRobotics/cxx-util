@@ -1,7 +1,6 @@
 #ifndef UTIL_LOG_HPP
 #define UTIL_LOG_HPP
 
-#include <boost/log/sources/global_logger_storage.hpp>
 #include <boost/log/sources/severity_channel_logger.hpp>
 #include <boost/log/sources/record_ostream.hpp>
 #include <boost/log/keywords/channel.hpp>
@@ -28,19 +27,22 @@ using boost::log::keywords::channel;
 
 namespace _ {
 
-BOOST_LOG_GLOBAL_LOGGER(defaultAssociatedLogger, boost::log::sources::severity_channel_logger_mt<>)
-// Use a concurrent (_mt) logger, since the default getAssociatedLogger() overload ould reasonably
-// be called from any thread.
+namespace {
+    Logger& defaultAssociatedLogger () {
+        thread_local Logger lg;
+        return lg;
+    }
+}
 
 template <class T>
-constexpr auto& getAssociatedLogger (T& t) {
-    return defaultAssociatedLogger::get();
+Logger& getAssociatedLogger (const T& t) {
+    return defaultAssociatedLogger();
 }
 
 struct GetAssociatedLogger {
     template <class T>
-    constexpr auto& operator() (T& t) const {
-        return getAssociatedLogger(std::forward<T>(t));
+    Logger& operator() (const T& t) const {
+        return getAssociatedLogger(t);
     }
 };
 

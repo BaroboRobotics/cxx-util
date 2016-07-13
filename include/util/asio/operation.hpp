@@ -20,7 +20,7 @@
 
 namespace util { namespace asio {
 
-namespace v2 {
+inline namespace v2 {
 
 template <class Coroutine, class Handler, class... Results>
 class OperationState {
@@ -138,11 +138,11 @@ public:
         m->complete(std::forward_as_tuple(results...));
     }
 
-    auto log () {
+    log::Logger& log () {
         return util::log::getAssociatedLogger(m->handler());
     }
 
-    friend auto& getAssociatedLogger (Operation& op) {
+    friend log::Logger& getAssociatedLogger (Operation& op) {
         return op.log();
     }
 
@@ -204,7 +204,7 @@ auto asyncDispatch (Context& context, std::tuple<Results...>&& defaultResult,
 
 } // v2
 
-inline namespace v1 {
+namespace v1 {
 
 template <class Base, class Handler>
 class OperationState : public Base {
