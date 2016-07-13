@@ -62,7 +62,7 @@ asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
         CompletionToken, void(error_code)
     > init { forward<CompletionToken>(token) };
 
-    util::asio::makeOperation<EchoOp<Stream>>(std::move(init.handler), stream, echoes)();
+    util::asio::v1::makeOperation<EchoOp<Stream>>(std::move(init.handler), stream, echoes)();
 
     return init.result.get();
 }
