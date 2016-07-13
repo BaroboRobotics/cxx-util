@@ -35,8 +35,15 @@ public:
 
     void destroy (implementation_type& impl) {
         auto ec = boost::system::error_code{};
-        impl->close(ec);
+        close(impl, ec);
         impl.reset();
+    }
+
+    void close (implementation_type& impl, boost::system::error_code& ec) {
+        ec = boost::system::error_code{};
+        if (impl) {
+            impl->close(ec);
+        }
     }
 
     template <class CompletionToken>
@@ -68,6 +75,10 @@ struct TransparentIoObject : boost::asio::basic_io_object<TransparentService<Imp
 
     TransparentIoObject (TransparentIoObject&&) = default;
     TransparentIoObject& operator= (TransparentIoObject&&) = default;
+    // Moving from a `TransparentIoObject` causes all asynchronous operation initiating functions
+    // on the moved-from object to have undefined behavior, due to a null pointer dereference. It
+    // is only safe to call the destructor, `close()`, and whatever functions you implement in your
+    // derived class which take into account the nullability of `this->get_implementation()`.
 
     void close () {
         boost::system::error_code ec;
@@ -78,7 +89,7 @@ struct TransparentIoObject : boost::asio::basic_io_object<TransparentService<Imp
     }
 
     void close (boost::system::error_code& ec) {
-        this->get_implementation()->close(ec);
+        this->get_service().close(this->get_implementation(), ec);
     }
 };
 
