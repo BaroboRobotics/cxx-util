@@ -3,6 +3,7 @@
 
 #include <util/log.hpp>
 #include <util/asio/handler_hooks.hpp>
+#include <util/asio/associatedlogger.hpp>
 #include <util/applytuple.hpp>
 
 #include <boost/asio/coroutine.hpp>
@@ -22,11 +23,13 @@ namespace util { namespace asio {
 
 inline namespace v2 {
 
+namespace _ {
+
 template <class Coroutine, class Handler, class... Results>
 class OperationState {
 public:
     template <class C, class H>
-    explicit OperationState (std::tuple<Results...>&& defaultResult, C&& coroutine, H&& handler)
+    OperationState (std::tuple<Results...>&& defaultResult, C&& coroutine, H&& handler)
         : mResult(std::move(defaultResult))
         , mCoroutine(std::forward<C>(coroutine))
         , mHandler(std::forward<H>(handler))
@@ -47,13 +50,11 @@ public:
     }
 
     friend void intrusive_ptr_add_ref (OperationState* self) {
-        util::log::Logger lg;
         assert(self);
         ++self->mRefs;
     }
 
     friend void intrusive_ptr_release (OperationState* self) {
-        util::log::Logger lg;
         assert(self);
         if (!--self->mRefs) {
 #if 0
@@ -138,11 +139,11 @@ public:
         m->complete(std::forward_as_tuple(results...));
     }
 
-    log::Logger& log () {
-        return util::log::getAssociatedLogger(m->handler());
+    log::Logger& log () const {
+        return ::util::asio::getAssociatedLogger(m->handler());
     }
 
-    friend log::Logger& getAssociatedLogger (Operation& op) {
+    friend log::Logger& getAssociatedLogger (const Operation& op) {
         return op.log();
     }
 
@@ -169,11 +170,13 @@ private:
     boost::intrusive_ptr<State> m;
 };
 
+} // _
+
 // Convenience function to construct an Operation.
 template <class Coroutine, class Handler, class... Results>
-Operation<typename std::decay<Coroutine>::type, typename std::decay<Handler>::type, Results...>
+_::Operation<typename std::decay<Coroutine>::type, typename std::decay<Handler>::type, Results...>
 makeOperation (std::tuple<Results...>&& defaultResult, Coroutine&& c, Handler&& h) {
-    using State = OperationState<
+    using State = _::OperationState<
         typename std::decay<Coroutine>::type, typename std::decay<Handler>::type, Results...>;
     auto vp = handler_hooks::allocate(sizeof(State), h);
     try {
