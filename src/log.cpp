@@ -56,7 +56,7 @@ boost::log::formatter defaultFormatter () {
     namespace attrs = boost::log::attributes;
     return expr::stream
         << "[" << expr::attr<attrs::local_clock::value_type, util::LogSafely>("TimeStamp") << "]"
-        << "[thread=" << expr::attr<attrs::current_thread_id::value_type>("ThreadID") << "]"
+        //<< "[thread=" << expr::attr<attrs::current_thread_id::value_type>("ThreadID") << "]"
         //<< "[" << expr::attr<attrs::named_scope::value_type>("Scope") << "]"
         << expr::if_(expr::has_attr<std::string>("Channel"))[
             expr::stream << " " << expr::attr<std::string>("Channel")
