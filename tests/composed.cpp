@@ -90,8 +90,8 @@ int main () try {
     });
 
     // Client
-    auto resolver = asio::ip::tcp::resolver{io.context()};
-    auto clientSocket = asio::ip::tcp::socket{io.context()};
+    asio::ip::tcp::resolver resolver {io.context()};
+    asio::ip::tcp::socket clientSocket {io.context()};
     try {
         asio::connect(clientSocket, resolver.resolve({"127.0.0.1", "6666"}));
         cout << "Connected to server\n";
