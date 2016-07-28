@@ -4,6 +4,7 @@
 #include <util/log.hpp>
 #include <util/asio/handler_hooks.hpp>
 #include <util/asio/associatedlogger.hpp>
+#include <util/asio/asynccompletion.hpp>
 #include <util/applytuple.hpp>
 
 #include <boost/asio/coroutine.hpp>
