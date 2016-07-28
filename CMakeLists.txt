@@ -19,8 +19,9 @@ else()
     add_library(cxx-util STATIC ${sources})
     set_target_properties(cxx-util PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
     target_link_libraries(cxx-util PUBLIC Boost::filesystem Boost::log Boost::program_options)
-    target_include_directories(cxx-util PRIVATE include PUBLIC
-        ${WEBSOCKETPP_INCLUDE_DIR}
+    target_include_directories(cxx-util
+        PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+        PUBLIC ${WEBSOCKETPP_INCLUDE_DIR}
     )
     target_compile_definitions(cxx-util
         PUBLIC
@@ -31,11 +32,12 @@ else()
             # By explicitly targeting Windows Vista and later at build time, we avoid some painful
             # linker issues with Boost.Log.
     )
-endif()
 
-if(CXXUTIL_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
+    option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
+    if(CXXUTIL_BUILD_TESTS)
+        enable_testing()
+        add_subdirectory(tests)
+    endif()
 endif()
 
 install(TARGETS cxx-util EXPORT barobo
