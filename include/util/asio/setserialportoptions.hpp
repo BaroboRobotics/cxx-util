@@ -52,31 +52,6 @@ void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int m
 #if BOOST_OS_MACOS
         //tcflush(sp.lowest_layer().native_handle(), TCIOFLUSH);
 #endif
-
-#if BOOST_OS_UNIX
-        // Asio's serial_port class does not appear to modify the VMIN setting of the serial port,
-        // which means we inherit whatever setting is already present on the device. If VMIN is 0,
-        // a common setting for serial libraries (e.g., PySerial) which perform non-blocking I/O,
-        // then all reads will fail with EOF unless there is data present in the input buffer. This
-        // is not desirable.
-        struct termios tio;
-        if (-1 == tcgetattr(sp.lowest_layer().native_handle(), &tio)) {
-            BOOST_LOG(lg) << "tcgetattr: "
-                << boost::system::error_code(errno, boost::system::generic_category()).message();
-        }
-        // VMIN and VTIME work together, and are only enabled with ICANON off.
-        tio.c_lflag &= ~ICANON;
-        tio.c_cc[VMIN] = 1;
-        tio.c_cc[VTIME] = 0;
-        if (-1 == tcflush(sp.lowest_layer().native_handle(), TCIOFLUSH)) {
-            BOOST_LOG(lg) << "tcflush: "
-                << boost::system::error_code(errno, boost::system::generic_category()).message();
-        }
-        if (-1 == tcsetattr(sp.lowest_layer().native_handle(), TCSANOW, &tio)) {
-            BOOST_LOG(lg) << "tcsetattr: "
-                << boost::system::error_code(errno, boost::system::generic_category()).message();
-        }
-#endif
     } while (maxAttempts > 0
              && ++attempts != maxAttempts
              && ec);
@@ -96,6 +71,32 @@ inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud) {
     tenaciousSetOption(sp, Option::parity(Option::parity::none), max);
     tenaciousSetOption(sp, Option::stop_bits(Option::stop_bits::one), max);
     tenaciousSetOption(sp, Option::flow_control(Option::flow_control::none), max);
+
+#if BOOST_OS_UNIX
+    // Asio's serial_port class does not appear to modify the VMIN setting of the serial port,
+    // which means we inherit whatever setting is already present on the device. If VMIN is 0,
+    // a common setting for serial libraries (e.g., PySerial) which perform non-blocking I/O,
+    // then all reads will fail with EOF unless there is data present in the input buffer. This
+    // is not desirable.
+    struct termios tio;
+    if (-1 == tcgetattr(sp.lowest_layer().native_handle(), &tio)) {
+        BOOST_LOG(lg) << "tcgetattr: "
+            << boost::system::error_code(errno, boost::system::generic_category()).message();
+    }
+    // VMIN and VTIME work together, and are only enabled with ICANON off.
+    tio.c_lflag &= ~ICANON;
+    tio.c_cc[VMIN] = 1;
+    tio.c_cc[VTIME] = 0;
+    if (-1 == tcflush(sp.lowest_layer().native_handle(), TCIOFLUSH)) {
+        BOOST_LOG(lg) << "tcflush: "
+            << boost::system::error_code(errno, boost::system::generic_category()).message();
+    }
+    if (-1 == tcsetattr(sp.lowest_layer().native_handle(), TCSANOW, &tio)) {
+        BOOST_LOG(lg) << "tcsetattr: "
+            << boost::system::error_code(errno, boost::system::generic_category()).message();
+    }
+#endif
+
 #if BOOST_OS_MACOS
     auto handle = sp.native_handle();
     ::write(handle, nullptr, 0);
