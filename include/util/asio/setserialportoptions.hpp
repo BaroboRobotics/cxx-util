@@ -33,10 +33,10 @@ static const std::chrono::milliseconds kSerialSettleTimeAfterOpen { 500 };
 static const int kMaxSerialSetOptionAttempts { 100 };
 
 template <class Option>
-void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int maxAttempts) {
+void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int maxAttempts,
+        util::log::Logger lg) {
     auto attempts = 0;
     auto ec = boost::system::error_code{};
-    util::log::Logger lg;
     do {
         ec = boost::system::error_code{};
         // On Mac OSX 10.11, we have to flush the serial port before and after
@@ -63,14 +63,15 @@ void tenaciousSetOption (boost::asio::serial_port& sp, Option value, const int m
     }
 }
 
-inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud) {
+inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud,
+        util::log::Logger lg = {}) {
     using Option = boost::asio::serial_port_base;
     const auto max = kMaxSerialSetOptionAttempts;
-    tenaciousSetOption(sp, Option::baud_rate(baud), max);
-    tenaciousSetOption(sp, Option::character_size(8), max);
-    tenaciousSetOption(sp, Option::parity(Option::parity::none), max);
-    tenaciousSetOption(sp, Option::stop_bits(Option::stop_bits::one), max);
-    tenaciousSetOption(sp, Option::flow_control(Option::flow_control::none), max);
+    tenaciousSetOption(sp, Option::baud_rate(baud), max, lg);
+    tenaciousSetOption(sp, Option::character_size(8), max, lg);
+    tenaciousSetOption(sp, Option::parity(Option::parity::none), max, lg);
+    tenaciousSetOption(sp, Option::stop_bits(Option::stop_bits::one), max, lg);
+    tenaciousSetOption(sp, Option::flow_control(Option::flow_control::none), max, lg);
 
 #if BOOST_OS_UNIX
     // Asio's serial_port class does not appear to modify the VMIN setting of the serial port,
@@ -103,9 +104,9 @@ inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud) {
 #endif
 }
 
-inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud, boost::system::error_code& ec) {
+inline void setSerialPortOptions (boost::asio::serial_port& sp, int baud, boost::system::error_code& ec, util::log::Logger lg = {}) {
     try {
-        setSerialPortOptions(sp, baud);
+        setSerialPortOptions(sp, baud, lg);
     }
     catch (boost::system::system_error& e) {
         ec = e.code();

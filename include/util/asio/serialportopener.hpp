@@ -65,7 +65,7 @@ inline auto SerialPortOpener::asyncOpen (boost::asio::serial_port& serialPort,
             yield mTimer.async_wait(std::move(op));
 
             BOOST_LOG(op.log()) << "Setting baud rate to " << baudRate;
-            util::asio::setSerialPortOptions(serialPort, baudRate, ec);
+            util::asio::setSerialPortOptions(serialPort, baudRate, ec, op.log());
             if (ec) { op.complete(ec); return; }
 
             if (mTimer.expires_at() == boost::asio::steady_timer::time_point::min()) {
