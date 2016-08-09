@@ -1,3 +1,8 @@
+// Copyright (c) 2014-2016 Barobo, Inc.
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+
 #ifndef POTRINGBUFFER_HPP
 #define POTRINGBUFFER_HPP
 
@@ -22,7 +27,7 @@ public:
     size_t size () volatile const {
         return full() ? N : (mEnd - mBegin) & (N - 1);
     }
-    
+
     /* True if ringbuffer is empty. */
     bool empty () const {
         return mBegin == mEnd;

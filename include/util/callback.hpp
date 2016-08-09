@@ -1,3 +1,8 @@
+// Copyright (c) 2014-2016 Barobo, Inc.
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+
 #ifndef UTIL_CALLBACK_HPP
 #define UTIL_CALLBACK_HPP
 
@@ -23,7 +28,7 @@ public:
     Callback()                    : func(0), obj(0) {}
     Callback(NullCallback)        : func(0), obj(0) {}
     Callback(const Callback& rhs) : func(rhs.func), obj(rhs.obj) {}
-    ~Callback() {} 
+    ~Callback() {}
 
     Callback& operator=(NullCallback)
         { obj = 0; func = 0; return *this; }

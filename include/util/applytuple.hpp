@@ -1,3 +1,8 @@
+// Copyright (c) 2014-2016 Barobo, Inc.
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+
 // Based on https://www.preney.ca/paul/archives/1099, with Xeo's make_index_sequence
 #ifndef UTIL_APPLYTUPLE_HPP
 #define UTIL_APPLYTUPLE_HPP
