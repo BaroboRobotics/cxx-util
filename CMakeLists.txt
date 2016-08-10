@@ -6,8 +6,6 @@ if(CMAKE_SYSTEM_NAME MATCHES "AVR")
     set(AVR ON)
 endif()
 
-option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
-
 if(AVR)
     add_library(cxx-util INTERFACE)
 else()
@@ -15,7 +13,7 @@ else()
     find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem thread log date_time regex program_options)
     find_package(websocketpp 0.7.0 REQUIRED)
 
-    set(sources src/iothread.cpp src/log.cpp src/programpath.cpp)
+    set(sources src/iothread.cpp src/log.cpp src/programpath.cpp src/version.cpp)
     add_library(cxx-util STATIC ${sources})
     set_target_properties(cxx-util PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
     target_link_libraries(cxx-util PUBLIC Boost::filesystem Boost::log Boost::program_options)
@@ -33,7 +31,7 @@ else()
             # linker issues with Boost.Log.
     )
 
-    option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
+    option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" ON)
     if(CXXUTIL_BUILD_TESTS)
         enable_testing()
         add_subdirectory(tests)
