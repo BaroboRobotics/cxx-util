@@ -6,53 +6,70 @@
 #ifndef UTIL_VERSION_HPP
 #define UTIL_VERSION_HPP
 
-#include <boost/system/error_code.hpp>
-#include <boost/system/system_error.hpp>
-
-#include <boost/array.hpp>
+#include <boost/optional.hpp>
 
 #include <string>
+#include <tuple>
+#include <vector>
 
 namespace util {
 
 class Version {
 public:
     Version () = default;
+    explicit Version (const std::string&);
 
-    explicit Version (const std::string& triplet);
+    bool parse (const std::string&);
 
-    friend bool operator== (const Version& lhs, const Version& rhs);
-    friend bool operator!= (const Version& lhs, const Version& rhs);
-    friend bool operator< (const Version& lhs, const Version& rhs);
-    friend bool operator<= (const Version& lhs, const Version& rhs);
-    friend bool operator> (const Version& lhs, const Version& rhs);
-    friend bool operator>= (const Version& lhs, const Version& rhs);
+    using NumberContainer = std::vector<unsigned>;
+    using IdentifierContainer = std::vector<std::string>;
 
-    enum class Status {
-        OK,
-        LEADING_ZERO,
-        NEGATIVE_INTEGER
-    };
+    const NumberContainer& numbers () const {
+        return std::get<0>(mData);
+    }
+
+    const boost::optional<IdentifierContainer>& preRelease () const {
+        return std::get<1>(mData);
+    }
+
+    const boost::optional<IdentifierContainer>& buildMetadata () const {
+        return std::get<2>(mData);
+    }
 
 private:
-    boost::array<unsigned, 3> mTriplet {};
+    std::tuple<NumberContainer,
+        boost::optional<IdentifierContainer>,
+        boost::optional<IdentifierContainer>> mData;
 };
 
-class VersionErrorCategory : public boost::system::error_category {
-public:
-    virtual const char* name () const BOOST_NOEXCEPT override;
-    virtual std::string message (int ev) const BOOST_NOEXCEPT override;
-};
+inline bool operator== (const Version& a, const Version& b) {
+    return a.numbers() == b.numbers() && a.preRelease() == b.preRelease();
+}
 
-const boost::system::error_category& versionErrorCategory ();
-boost::system::error_code make_error_code (Version::Status status);
-boost::system::error_condition make_error_condition (Version::Status status);
+inline bool operator!= (const Version& a, const Version& b) {
+    return !(a == b);
+}
+
+inline bool operator< (const Version& a, const Version& b) {
+    return a.numbers() == b.numbers()
+        ? a.preRelease() < b.preRelease()
+        : a.numbers() < b.numbers();
+}
+
+inline bool operator<= (const Version& a, const Version& b) {
+    return a < b || a == b;
+}
+
+inline bool operator> (const Version& a, const Version& b) {
+    return a.numbers() == b.numbers()
+        ? a.preRelease() > b.preRelease()
+        : a.numbers() > b.numbers();
+}
+
+inline bool operator>= (const Version& a, const Version& b) {
+    return a > b || a == b;
+}
 
 } // util
-
-namespace boost { namespace system {
-    template <>
-    struct is_error_code_enum< ::util::Version::Status> : public std::true_type { };
-}} // boost::system
 
 #endif

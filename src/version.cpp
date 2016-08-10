@@ -12,13 +12,8 @@
 #include <boost/spirit/include/qi.hpp>
 
 #include <boost/fusion/adapted.hpp>
+#include <boost/fusion/adapted/std_tuple.hpp>
 #include <boost/fusion/adapted/boost_array.hpp>
-
-// http://stackoverflow.com/questions/34435150/boostspirit-parsing-into-struct-with-stdarray
-namespace boost { namespace spirit { namespace traits {
-    template <typename T, size_t N>
-        struct is_container<boost::array<T, N>, void> : mpl::false_ { };
-}}} // boost::spirit::traits
 
 namespace util {
 
@@ -26,10 +21,15 @@ namespace {
 
 namespace qi = boost::spirit::qi;
 
+using DataType = std::tuple<Version::NumberContainer, boost::optional<Version::IdentifierContainer>, boost::optional<Version::IdentifierContainer>>;
+
 template <class Iter>
-struct VersionGrammar : qi::grammar<Iter, boost::array<unsigned, 3>()> {
-    qi::rule<Iter, boost::array<unsigned, 3>()> start;
-    qi::rule<Iter, unsigned()> number;
+struct VersionGrammar : qi::grammar<Iter, DataType()> {
+    qi::rule<Iter, DataType()> start;
+    qi::rule<Iter, Version::NumberContainer()> numbers;
+    qi::rule<Iter, Version::IdentifierContainer()> preRelease;
+    qi::rule<Iter, Version::IdentifierContainer()> buildMetadata;
+    qi::rule<Iter, Version::IdentifierContainer::value_type()> identifier;
 
     VersionGrammar () : VersionGrammar::base_type(start, "version") {
         using qi::_1;
@@ -37,10 +37,19 @@ struct VersionGrammar : qi::grammar<Iter, boost::array<unsigned, 3>()> {
         using boost::phoenix::at_c;
 
         start.name("start");
-        start %= number > '.' > number > '.' > number > qi::eoi;
+        start %= -qi::lit('v') > numbers > -preRelease > -buildMetadata > qi::eoi;
 
-        number.name("number");
-        number %= qi::uint_;
+        numbers.name("numbers");
+        numbers %= qi::uint_ % '.';
+
+        preRelease.name("preRelease");
+        preRelease %= '-' > identifier % '.';
+
+        buildMetadata.name("buildMetadata");
+        buildMetadata %= '+' > identifier % '.';
+
+        identifier.name("identifier");
+        identifier %= +(qi::alnum | '-');
 
         using ErrorHandlerArgs = boost::fusion::vector<
             Iter&, const Iter&, const Iter&, const qi::info&>;
@@ -51,87 +60,32 @@ struct VersionGrammar : qi::grammar<Iter, boost::array<unsigned, 3>()> {
         };
 
         qi::on_error<qi::fail>(start, logError);
-        qi::on_error<qi::fail>(number, logError);
+        qi::on_error<qi::fail>(numbers, logError);
+        qi::on_error<qi::fail>(preRelease, logError);
+        qi::on_error<qi::fail>(buildMetadata, logError);
+        qi::on_error<qi::fail>(identifier, logError);
     }
 };
 
-#if 0
-bool parseVersion (const std::string& triplet, boost::array<unsigned, 3>& xyz) {
-    VersionGrammar<decltype(triplet.begin())> grammar;
-    return qi::parse(hex.begin(), hex.end(), grammar, xyz);
-}
-#endif
-
-boost::array<unsigned, 3> parseVersion (const std::string& triplet) {
-    VersionGrammar<decltype(triplet.begin())> grammar;
-    boost::array<unsigned, 3> numbers;
-    if (!qi::parse(triplet.begin(), triplet.end(), grammar, numbers)) {
-        throw std::runtime_error{"Version parsing failed"};
-    }
-    return numbers;
-}
-
 } // <anonymous>
 
-Version::Version (const std::string& triplet)
-    : mTriplet(parseVersion(triplet))
-{}
-
-// Implementation of equality/ordering is trivial: `boost::array` implements lexicographical
-// comparison for us already.
-
-bool operator== (const Version& lhs, const Version& rhs) {
-    return lhs.mTriplet == rhs.mTriplet;
-}
-
-bool operator!= (const Version& lhs, const Version& rhs) {
-    return lhs.mTriplet != rhs.mTriplet;
-}
-
-bool operator< (const Version& lhs, const Version& rhs) {
-    return lhs.mTriplet < rhs.mTriplet;
-}
-
-bool operator<= (const Version& lhs, const Version& rhs) {
-    return lhs.mTriplet <= rhs.mTriplet;
-}
-
-bool operator> (const Version& lhs, const Version& rhs) {
-    return lhs.mTriplet > rhs.mTriplet;
-}
-
-bool operator>= (const Version& lhs, const Version& rhs) {
-    return lhs.mTriplet >= rhs.mTriplet;
-}
-
-const char* VersionErrorCategory::name () const BOOST_NOEXCEPT {
-    return "util-version";
-}
-
-std::string VersionErrorCategory::message (int ev) const BOOST_NOEXCEPT {
-    switch (Version::Status(ev)) {
-#define ITEM(x) case Version::Status::x: return #x;
-        ITEM(OK)
-        ITEM(LEADING_ZERO)
-        ITEM(NEGATIVE_INTEGER)
-#undef ITEM
-        default: return "(unknown status)";
+Version::Version (const std::string& v) {
+    if (!parse(v)) {
+        throw std::runtime_error{"Version parsing failed"};
     }
 }
 
-const boost::system::error_category& versionErrorCategory () {
-    static VersionErrorCategory instance;
-    return instance;
-}
-
-boost::system::error_code make_error_code (Version::Status status) {
-    return boost::system::error_code(static_cast<int>(status),
-        versionErrorCategory());
-}
-
-boost::system::error_condition make_error_condition (Version::Status status) {
-    return boost::system::error_condition(static_cast<int>(status),
-        versionErrorCategory());
+bool Version::parse (const std::string& v) {
+#if 0
+    auto g = -qi::lit('v')
+        >> qi::uint_ % '.'
+        >> -((qi::alnum + '-') % '.')
+        >> -((qi::alnum + '-') % '.')
+        > qi::eoi;
+    return qi::parse(v.begin(), v.end(), grammar, std::tie(mNumbers, mPreRelease, mBuildMetadata));
+#endif
+    VersionGrammar<decltype(v.begin())> grammar;
+    return qi::parse(v.begin(), v.end(), grammar, mData);
 }
 
 } // util

@@ -5,25 +5,11 @@
 
 #include <util/version.hpp>
 
-#include <boost/system/error_code.hpp>
-
 #include <iostream>
 
 #include <cassert>
 
 using util::Version;
-
-template <class... Args>
-void expect (boost::system::error_code expected, Args&&... args) {
-    try {
-        auto v = Version{std::forward<Args>(args)...};
-    }
-    catch (boost::system::system_error& e) {
-        if (e.code() != expected) {
-            throw;
-        }
-    }
-}
 
 #ifdef NDEBUG
 static_assert(!NDEBUG, "");
@@ -38,45 +24,12 @@ int main () try {
     // 1.9.0 -> 1.10.0 -> 1.11.0.
     {
         auto v = Version{"1.9.0"};
-        auto w = Version{"1.10.0"};
+        auto w = Version{"1.10.0-dev"};
+        auto x = Version{"1.10.0"};
 
         assert(v < w);
-
-#if 0
-        v = v.bumpMajor();
-        v = v.bumpMinor();
-        v = v.bumpPatch();
-        ++v.major();
-        ++v.minor();
-        ++v.patch();
-
-        assert(v.major() == x + 1);
-        assert(v.minor() == y + 1);
-        assert(v.patch() == z + 1);
-#endif
+        assert(w < x);
     }
-
-#if 0
-    expect(util::Version::Status::NEGATIVE_INTEGER, "-1.9.0");
-    expect(util::Version::Status::NEGATIVE_INTEGER, "1.-9.0");
-    expect(util::Version::Status::NEGATIVE_INTEGER, "1.9.-0");
-
-    expect(util::Version::Status::NEGATIVE_INTEGER, "-1.-9.0");
-    expect(util::Version::Status::NEGATIVE_INTEGER, "-1.9.-0");
-    expect(util::Version::Status::NEGATIVE_INTEGER, "1.-9.-0");
-
-    expect(util::Version::Status::NEGATIVE_INTEGER, "-1.-9.-0");
-
-    expect(util::Version::Status::LEADING_ZERO, "01.9.0");
-    expect(util::Version::Status::LEADING_ZERO, "1.09.0");
-    expect(util::Version::Status::LEADING_ZERO, "1.9.00");
-
-    expect(util::Version::Status::LEADING_ZERO, "01.09.0");
-    expect(util::Version::Status::LEADING_ZERO, "01.9.00");
-    expect(util::Version::Status::LEADING_ZERO, "1.09.00");
-
-    expect(util::Version::Status::LEADING_ZERO, "01.09.00");
-#endif
 
     return 0;
 }
