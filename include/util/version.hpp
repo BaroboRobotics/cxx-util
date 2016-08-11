@@ -51,9 +51,20 @@ inline bool operator!= (const Version& a, const Version& b) {
 }
 
 inline bool operator< (const Version& a, const Version& b) {
-    return a.numbers() == b.numbers()
-        ? a.preRelease() < b.preRelease()
-        : a.numbers() < b.numbers();
+    if (a.numbers() == b.numbers()) {
+        if (a.preRelease() && b.preRelease()) {
+            return a.preRelease() < b.preRelease();
+        }
+        else if (!a.preRelease() && !b.preRelease()) {
+            return false;  // equal
+        }
+        else {
+            return !!a.preRelease();  // if `a` has pre-release data, it is less than `b`
+        }
+    }
+    else {
+        return a.numbers() < b.numbers();
+    }
 }
 
 inline bool operator<= (const Version& a, const Version& b) {
@@ -61,9 +72,20 @@ inline bool operator<= (const Version& a, const Version& b) {
 }
 
 inline bool operator> (const Version& a, const Version& b) {
-    return a.numbers() == b.numbers()
-        ? a.preRelease() > b.preRelease()
-        : a.numbers() > b.numbers();
+    if (a.numbers() == b.numbers()) {
+        if (a.preRelease() && b.preRelease()) {
+            return a.preRelease() > b.preRelease();
+        }
+        else if (!a.preRelease() && !b.preRelease()) {
+            return false;  // equal
+        }
+        else {
+            return !!b.preRelease();  // if `b` has pre-release data, it is less than `a`
+        }
+    }
+    else {
+        return a.numbers() > b.numbers();
+    }
 }
 
 inline bool operator>= (const Version& a, const Version& b) {

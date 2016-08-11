@@ -27,8 +27,26 @@ int main () try {
         auto w = Version{"1.10.0-dev"};
         auto x = Version{"1.10.0"};
 
+        assert(v == Version{v});
+        assert(w == Version{w});
+        assert(Version{v} == v);
+        assert(Version{w} == w);
+
+        assert(v != w);
+        assert(v != x);
+        assert(w != v);
+        assert(w != x);
+        assert(x != v);
+        assert(x != w);
+
         assert(v < w);
+        assert(w > v);
+
+        assert(v < x);
+        assert(x > v);
+
         assert(w < x);
+        assert(x > w);
     }
 
     return 0;
