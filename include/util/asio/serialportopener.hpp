@@ -37,6 +37,12 @@ public:
             const std::string& path, unsigned baudRate,
             SettleDelay&& settleDelay, WriteDelay&& writeDelay, CompletionToken&& token);
 
+    template <class RetryDelay, class SettleDelay, class WriteDelay, class CompletionToken>
+    auto asyncOpenUntilSuccess (boost::asio::serial_port& serialPort,
+            const std::string& path, unsigned baudRate,
+            RetryDelay&& retryDelay, SettleDelay&& settleDelay, WriteDelay&& writeDelay,
+            CompletionToken&& token);
+
 private:
     boost::asio::steady_timer mTimer;
 };
@@ -80,6 +86,51 @@ inline auto SerialPortOpener::asyncOpen (boost::asio::serial_port& serialPort,
             mTimer.expires_from_now(writeDelay);
             yield mTimer.async_wait(std::move(op));
             op.complete(ec);
+        }
+    };
+
+    return util::asio::asyncDispatch(
+        mTimer.get_io_service(),
+        std::make_tuple(make_error_code(boost::asio::error::operation_aborted)),
+        std::move(coroutine),
+        std::forward<CompletionToken>(token)
+    );
+}
+
+template <class RetryDelay, class SettleDelay, class WriteDelay, class CompletionToken>
+inline auto SerialPortOpener::asyncOpenUntilSuccess (boost::asio::serial_port& serialPort,
+        const std::string& path, unsigned baudRate,
+        RetryDelay&& retryDelay, SettleDelay&& settleDelay, WriteDelay&& writeDelay,
+        CompletionToken&& token) {
+    auto coroutine =
+    [ this
+    , &serialPort
+    , path
+    , baudRate
+    , retryDelay = std::forward<RetryDelay>(retryDelay)
+    , settleDelay = std::forward<SettleDelay>(settleDelay)
+    , writeDelay = std::forward<WriteDelay>(writeDelay)
+    ]
+    (auto&& op, boost::system::error_code ec = {}) {
+        reenter (op) {
+            yield this->asyncOpen(
+                serialPort, path, baudRate,
+                settleDelay, writeDelay, std::move(op)
+            );
+            while (ec) {
+                BOOST_LOG(op.log()) << "asyncOpen: " << ec.message();
+                if (mTimer.expires_at() == boost::asio::steady_timer::time_point::min()) {
+                    return;
+                }
+                mTimer.expires_from_now(retryDelay);
+                yield mTimer.async_wait(std::move(op));
+                if (ec) { op.complete(ec); return; }
+
+                yield this->asyncOpen(
+                    serialPort, path, baudRate,
+                    settleDelay, writeDelay, std::move(op)
+                );
+            }
         }
     };
 
