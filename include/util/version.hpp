@@ -7,6 +7,7 @@
 #define UTIL_VERSION_HPP
 
 #include <boost/optional.hpp>
+#include <boost/variant.hpp>
 
 #include <string>
 #include <tuple>
@@ -22,70 +23,44 @@ public:
     bool parse (const std::string&);
 
     using NumberContainer = std::vector<unsigned>;
+    using PreReleaseContainer = std::vector<boost::variant<unsigned, std::string>>;
     using IdentifierContainer = std::vector<std::string>;
 
-    const NumberContainer& numbers () const {
+    const auto& numbers () const {
         return std::get<0>(mData);
     }
 
-    const boost::optional<IdentifierContainer>& preRelease () const {
+    const auto& preRelease () const {
         return std::get<1>(mData);
     }
 
-    const boost::optional<IdentifierContainer>& buildMetadata () const {
+    const auto& buildMetadata () const {
         return std::get<2>(mData);
     }
 
 private:
     std::tuple<NumberContainer,
-        boost::optional<IdentifierContainer>,
+        boost::optional<PreReleaseContainer>,
         boost::optional<IdentifierContainer>> mData;
 };
 
-inline bool operator== (const Version& a, const Version& b) {
-    return a.numbers() == b.numbers() && a.preRelease() == b.preRelease();
-}
+// `Version`s are EqualityComparable and LessThanComparable.
+
+bool operator== (const Version& a, const Version& b);
+bool operator< (const Version& a, const Version& b);
+
+// And we'll provide the rest of the operators to be nice.
 
 inline bool operator!= (const Version& a, const Version& b) {
     return !(a == b);
 }
 
-inline bool operator< (const Version& a, const Version& b) {
-    if (a.numbers() == b.numbers()) {
-        if (a.preRelease() && b.preRelease()) {
-            return a.preRelease() < b.preRelease();
-        }
-        else if (!a.preRelease() && !b.preRelease()) {
-            return false;  // equal
-        }
-        else {
-            return !!a.preRelease();  // if `a` has pre-release data, it is less than `b`
-        }
-    }
-    else {
-        return a.numbers() < b.numbers();
-    }
+inline bool operator> (const Version& a, const Version& b) {
+    return b < a;
 }
 
 inline bool operator<= (const Version& a, const Version& b) {
     return a < b || a == b;
-}
-
-inline bool operator> (const Version& a, const Version& b) {
-    if (a.numbers() == b.numbers()) {
-        if (a.preRelease() && b.preRelease()) {
-            return a.preRelease() > b.preRelease();
-        }
-        else if (!a.preRelease() && !b.preRelease()) {
-            return false;  // equal
-        }
-        else {
-            return !!b.preRelease();  // if `b` has pre-release data, it is less than `a`
-        }
-    }
-    else {
-        return a.numbers() > b.numbers();
-    }
 }
 
 inline bool operator>= (const Version& a, const Version& b) {

@@ -21,42 +21,46 @@ namespace {
 
 namespace qi = boost::spirit::qi;
 
-using DataType = std::tuple<Version::NumberContainer, boost::optional<Version::IdentifierContainer>, boost::optional<Version::IdentifierContainer>>;
+using boost::spirit::ascii::char_;
+using boost::spirit::auto_;
+using boost::spirit::lit;
+using boost::spirit::uint_;
+
+using DataType = std::tuple<Version::NumberContainer, boost::optional<Version::PreReleaseContainer>, boost::optional<Version::IdentifierContainer>>;
 
 template <class Iter>
 struct VersionGrammar : qi::grammar<Iter, DataType()> {
     qi::rule<Iter, DataType()> start;
     qi::rule<Iter, Version::NumberContainer()> numbers;
-    qi::rule<Iter, Version::IdentifierContainer()> preRelease;
+    qi::rule<Iter, Version::PreReleaseContainer()> preRelease;
     qi::rule<Iter, Version::IdentifierContainer()> buildMetadata;
     qi::rule<Iter, Version::IdentifierContainer::value_type()> identifier;
 
     VersionGrammar () : VersionGrammar::base_type(start, "version") {
-        using qi::_1;
-        using qi::_val;
-        using boost::phoenix::at_c;
-
         start.name("start");
-        start %= -qi::lit('v') > numbers > -preRelease > -buildMetadata > qi::eoi;
+        start %= -lit('v') > numbers > -preRelease > -buildMetadata;
 
         numbers.name("numbers");
-        numbers %= qi::uint_ % '.';
+        numbers %= uint_ % '.';
 
         preRelease.name("preRelease");
-        preRelease %= '-' > identifier % '.';
+        preRelease %= '-' > (uint_ | identifier) % '.';
 
         buildMetadata.name("buildMetadata");
         buildMetadata %= '+' > identifier % '.';
 
         identifier.name("identifier");
-        identifier %= +(qi::alnum | '-');
+        identifier %= +char_("0-9A-Za-z-");
 
         using ErrorHandlerArgs = boost::fusion::vector<
             Iter&, const Iter&, const Iter&, const qi::info&>;
 
         auto logError = [](ErrorHandlerArgs args, auto&, qi::error_handler_result&) {
+#if 0
+            using boost::phoenix::at_c;
             std::cerr << "Expected '" << at_c<3>(args) << "' here: '"
                 << std::string(at_c<2>(args), at_c<1>(args)) << "'\n" << std::endl;
+#endif
         };
 
         qi::on_error<qi::fail>(start, logError);
@@ -76,16 +80,26 @@ Version::Version (const std::string& v) {
 }
 
 bool Version::parse (const std::string& v) {
-#if 0
-    auto g = -qi::lit('v')
-        >> qi::uint_ % '.'
-        >> -((qi::alnum + '-') % '.')
-        >> -((qi::alnum + '-') % '.')
-        > qi::eoi;
-    return qi::parse(v.begin(), v.end(), grammar, std::tie(mNumbers, mPreRelease, mBuildMetadata));
-#endif
+    mData = {};
     VersionGrammar<decltype(v.begin())> grammar;
-    return qi::parse(v.begin(), v.end(), grammar, mData);
+    return qi::parse(v.begin(), v.end(), grammar >> qi::eoi, mData);
+}
+
+bool operator== (const Version& a, const Version& b) {
+    return a.numbers() == b.numbers() && a.preRelease() == b.preRelease();
+}
+
+bool operator< (const Version& a, const Version& b) {
+    if (a.numbers() == b.numbers()) {
+        // `none` compares less-than to any non-empty `optional`, which is the opposite semantics
+        // of what we want. The logic in the ternary operator corrects false positives/negatives.
+        return a.preRelease() < b.preRelease()
+            ? a.preRelease() && b.preRelease()
+            : a.preRelease() && !b.preRelease();
+    }
+    else {
+        return a.numbers() < b.numbers();
+    }
 }
 
 } // util
