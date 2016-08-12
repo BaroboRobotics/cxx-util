@@ -9,6 +9,7 @@
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
 
+#include <iostream>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -66,6 +67,8 @@ inline bool operator<= (const Version& a, const Version& b) {
 inline bool operator>= (const Version& a, const Version& b) {
     return a > b || a == b;
 }
+
+std::ostream& operator<< (std::ostream&, const Version&);
 
 } // util
 

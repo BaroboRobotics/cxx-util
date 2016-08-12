@@ -11,6 +11,9 @@
 #include <boost/spirit/include/phoenix_stl.hpp>
 #include <boost/spirit/include/qi.hpp>
 
+#include <boost/spirit/include/karma.hpp>
+#include <boost/spirit/include/karma_stream.hpp>
+
 #include <boost/fusion/adapted.hpp>
 #include <boost/fusion/adapted/std_tuple.hpp>
 #include <boost/fusion/adapted/boost_array.hpp>
@@ -20,6 +23,7 @@ namespace util {
 namespace {
 
 namespace qi = boost::spirit::qi;
+namespace karma = boost::spirit::karma;
 
 using boost::spirit::ascii::char_;
 using boost::spirit::auto_;
@@ -100,6 +104,17 @@ bool operator< (const Version& a, const Version& b) {
     else {
         return a.numbers() < b.numbers();
     }
+}
+
+std::ostream& operator<< (std::ostream& os, const Version& v) {
+    if (v.numbers().size()) {
+        os << karma::format(
+            uint_ % '.'
+            << -('-' << auto_ % '.')
+            << -('+' << auto_ % '.')
+            , v.numbers(), v.preRelease(), v.buildMetadata());
+    }
+    return os;
 }
 
 } // util
