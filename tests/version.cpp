@@ -11,8 +11,8 @@
 
 using util::Version;
 
-#ifdef NDEBUG
-static_assert(!NDEBUG, "");
+#if NDEBUG
+#warning "TODO: Use a testing framework that isn't assert()"
 #endif
 
 int main () try {
