@@ -131,6 +131,7 @@ inline auto SerialPortOpener::asyncOpenUntilSuccess (boost::asio::serial_port& s
                     settleDelay, writeDelay, std::move(op)
                 );
             }
+            op.complete(ec);
         }
     };
 
