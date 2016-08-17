@@ -43,7 +43,7 @@ public:
 
     using Connection = ::websocketpp::connection<Config>;
     using ConnectionPtr = Connection::ptr;
-    using MessageQueue = ::baromesh::websocket::MessageQueue<Config>;
+    using MessageQueue = ::util::asio::ws::MessageQueue<Config>;
 
     explicit ConnectorImpl (boost::asio::io_service& context)
         : mContext(context)
