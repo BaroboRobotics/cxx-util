@@ -69,7 +69,7 @@ public:
         // Called immediately post-construction. AcceptorImpl now has access to shared_from_this().
         auto self = this->shared_from_this();
         mWsClient.set_open_handler(std::bind(&ConnectorImpl::handleOpen, self, _1));
-        mWsClient.set_fail_handler(std::bind(&ConnectorImpl::handleOpen, self, _1));
+        mWsClient.set_fail_handler(std::bind(&ConnectorImpl::handleFail, self, _1));
     }
 
     ~ConnectorImpl () {
@@ -133,32 +133,49 @@ public:
     }
 
 private:
+    void handleFail (::websocketpp::connection_hdl hdl) {
+        auto ec = boost::system::error_code{};
+        auto con = mWsClient.get_con_from_hdl(hdl, ec);
+        if (!ec) {
+            ec = con->get_transport_ec();
+            // If no transport error was recorded, make one up -- we're in the fail handler.
+            handleOpenOrFail(con, ec ? ec : make_error_code(boost::asio::error::network_down));
+        }
+        else {
+            BOOST_LOG(mLog) << "Fail handler could not get connection pointer: " << ec.message();
+        }
+    }
+
     void handleOpen (::websocketpp::connection_hdl hdl) {
         auto ec = boost::system::error_code{};
         auto con = mWsClient.get_con_from_hdl(hdl, ec);
         if (!ec) {
-            assert(con);
-            auto iter = mNascentConnections.find(con);
-            if (iter != mNascentConnections.end()) {
-                auto& data = iter->second;
-                auto handler = data.handler;
-                auto& mq = data.mq.get();
-                mNascentConnections.erase(iter);
-                // The newly opened connection has handlers which contain shared_ptrs to this.
-                // Destroy them as soon as possible.
-                mContext.post([con] {
-                    con->set_open_handler(nullptr);
-                    con->set_fail_handler(nullptr);
-                });
-                mq.setConnectionPtr(con);
-                handler(con->get_transport_ec());
-            }
-            else {
-                BOOST_LOG(mLog) << "Open handler could not find nascent connection pointer";
-            }
+            handleOpenOrFail(con, ec);
         }
         else {
             BOOST_LOG(mLog) << "Open handler could not get connection pointer: " << ec.message();
+        }
+    }
+
+    void handleOpenOrFail (ConnectionPtr con, const boost::system::error_code& ec) {
+        assert(con);
+        auto iter = mNascentConnections.find(con);
+        if (iter != mNascentConnections.end()) {
+            auto& data = iter->second;
+            auto handler = data.handler;
+            auto& mq = data.mq.get();
+            mNascentConnections.erase(iter);
+            // The newly opened connection has handlers which contain shared_ptrs to this.
+            // Destroy them as soon as possible.
+            mContext.post([con] {
+                con->set_open_handler(nullptr);
+                con->set_fail_handler(nullptr);
+            });
+            mq.setConnectionPtr(con);
+            handler(ec);
+        }
+        else {
+            BOOST_LOG(mLog) << "Open handler could not find nascent connection pointer";
         }
     }
 
