@@ -19,7 +19,10 @@
 
 namespace util { namespace log {
 
-boost::program_options::options_description optionsDescription ();
+enum class ConsoleDefault : bool { OFF, ON };
+
+boost::program_options::options_description optionsDescription (
+        ConsoleDefault = ConsoleDefault::ON);
 // Build and return a description of what command line options the logging system supports. Use the
 // returned value to parse the command line -- logging sinks will be automatically configured when
 // boost::program_options::notify() is called.

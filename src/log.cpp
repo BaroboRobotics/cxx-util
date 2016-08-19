@@ -33,9 +33,10 @@ namespace {
     void initSyslogSink (const std::string&);
 } // anonymous namespace
 
-boost::program_options::options_description optionsDescription () {
+boost::program_options::options_description optionsDescription (ConsoleDefault consoleDefault) {
     boost::log::add_common_attributes();
     boost::log::core::get()->add_global_attribute("Scope", boost::log::attributes::named_scope());
+    boost::log::core::get()->set_logging_enabled(false);
 
     auto opts = po::options_description{"Log options"};
     opts.add_options()
@@ -44,7 +45,7 @@ boost::program_options::options_description optionsDescription () {
             ->notifier(&initFileSink), "log to file with given path")
         ("log-console", po::value<bool>()
             ->value_name("0|1")
-            ->default_value(true)
+            ->default_value(static_cast<bool>(consoleDefault))
             ->notifier(&initConsoleSink),
             "log to console")
         ("log-syslog", po::value<std::string>()
@@ -104,6 +105,7 @@ void initFileSink (const std::string& logFile) {
         keywords::file_name = absLogFile,
         keywords::auto_flush = true
     )->set_formatter(defaultFormatter());
+    boost::log::core::get()->set_logging_enabled(true);
 }
 
 void initConsoleSink (bool enabled) {
@@ -114,6 +116,7 @@ void initConsoleSink (bool enabled) {
         std::clog,
         keywords::auto_flush = true
     )->set_formatter(defaultFormatter());
+    boost::log::core::get()->set_logging_enabled(true);
 }
 
 void initSyslogSink (const std::string& programName) {
@@ -131,6 +134,7 @@ void initSyslogSink (const std::string& programName) {
     sink->set_formatter(defaultFormatter());
 
     boost::log::core::get()->add_sink(sink);
+    boost::log::core::get()->set_logging_enabled(true);
 }
 
 } // anonymous namespace
