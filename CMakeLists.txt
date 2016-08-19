@@ -15,7 +15,15 @@ else()
 
     set(sources src/iothread.cpp src/log.cpp src/programpath.cpp src/version.cpp)
     add_library(cxx-util STATIC ${sources})
-    set_target_properties(cxx-util PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
+    set_target_properties(cxx-util
+        PROPERTIES
+            CXX_STANDARD 14
+            CXX_STANDARD_REQUIRED ON
+            POSITION_INDEPENDENT_CODE ON
+            VERSION ${PROJECT_VERSION}
+            SOVERSION ${PROJECT_VERSION_MAJOR}
+            MACOSX_RPATH ON
+    )
     target_link_libraries(cxx-util PUBLIC Boost::filesystem Boost::log Boost::program_options)
     target_include_directories(cxx-util
         PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
