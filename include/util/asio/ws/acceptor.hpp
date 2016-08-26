@@ -69,7 +69,7 @@ public:
     void close (boost::system::error_code& ec) {
         ec = {};
         mWsServer.stop_listening(ec);
-        mWsServer.close(ec);
+        //mWsServer.close(ec);
         while (mConnectionQueue.depth() < 0) {
             mConnectionQueue.produce(boost::asio::error::operation_aborted, nullptr);
         }
