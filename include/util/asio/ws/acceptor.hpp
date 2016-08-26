@@ -69,6 +69,7 @@ public:
     void close (boost::system::error_code& ec) {
         ec = {};
         mWsServer.stop_listening(ec);
+        mWsServer.close(ec);
         while (mConnectionQueue.depth() < 0) {
             mConnectionQueue.produce(boost::asio::error::operation_aborted, nullptr);
         }
@@ -77,6 +78,7 @@ public:
                 if (!ec2) {
                     BOOST_LOG(mLog) << "Discarding accepted connection from "
                         << ptr->get_uri()->str();
+                    ptr->close(ec2);
                 }
                 else {
                     BOOST_LOG(mLog) << "Discarding error message: " << ec2.message();
