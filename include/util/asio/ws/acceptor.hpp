@@ -78,7 +78,7 @@ public:
                 if (!ec2) {
                     BOOST_LOG(mLog) << "Discarding accepted connection from "
                         << ptr->get_uri()->str();
-                    ptr->close(ec2);
+                    ptr->close(websocketpp::close::status::normal, "", ec2);
                 }
                 else {
                     BOOST_LOG(mLog) << "Discarding error message: " << ec2.message();
