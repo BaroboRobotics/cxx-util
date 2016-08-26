@@ -11,7 +11,7 @@ if(AVR)
 else()
     set(Boost_USE_STATIC_LIBS ON)
     find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem thread log date_time regex program_options)
-    find_package(websocketpp 0.7.0 REQUIRED)
+    find_package(websocketpp 0.8.0 REQUIRED)
 
     set(sources src/iothread.cpp src/log.cpp src/programpath.cpp src/version.cpp)
     add_library(cxx-util STATIC ${sources})
