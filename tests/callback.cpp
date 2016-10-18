@@ -3,15 +3,14 @@
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <util/doctest.h>
 #include <util/callback.hpp>
-
-#include <cassert>
 
 struct AddTwo {
     static int exec (int i) { return i + 2; };
 };
 
-int main () {
+TEST_CASE("callbacks can call back") {
     int x;
     util::Callback<int(int)> sig;
 
@@ -20,11 +19,11 @@ int main () {
 
     sig = BIND_MEM_CB(&Lambda::operator(), &addOne);
     x = sig(1);
-    assert(2 == x);
+    CHECK(2 == x);
 
     sig = BIND_FREE_CB(&AddTwo::exec);
     x = sig(1);
-    assert(3 == x);
+    CHECK(3 == x);
 
     /* TODO: add some more cases, comment this stuff */
 }

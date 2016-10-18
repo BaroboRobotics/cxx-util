@@ -3,6 +3,7 @@
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <util/doctest.h>
 #include <util/variant.hpp>
 
 #include <memory>
@@ -18,13 +19,13 @@ struct B {
 template <class T>
 struct AssertIdEquals {
     AssertIdEquals (int id) : id(id) { }
-    void operator() (T& x) const { assert(x.id == id); }
+    void operator() (T& x) const { CHECK(x.id == id); }
     template <class U>
-    void operator() (U& x) const { assert(false); }
+    void operator() (U& x) const { CHECK(false); }
     int id;
 };
 
-int main () {
+TEST_CASE("Variant") {
     using Var = util::Variant<A, B>;
     {
         // Not DefaultConstructible
@@ -68,5 +69,4 @@ int main () {
         std::unique_ptr<Var> u { new Var(B{1}) };
         util::apply(AssertIdEquals<B>(1), *u);
     }
-    return 0;
 }

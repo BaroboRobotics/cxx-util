@@ -3,13 +3,10 @@
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
+#include <util/doctest.h>
 #include <util/producerconsumerqueue.hpp>
 
 #include <random>
-
-#include <iostream>
-
-#include <cassert>
 
 template <class T>
 T randomNumberBetween (T a, T b) {
@@ -19,23 +16,20 @@ T randomNumberBetween (T a, T b) {
     return dis(gen);
 }
 
-int main () {
-    {
-        util::ProducerConsumerQueue<> pcq;
-        auto produces = 0;
-        auto consumes = 0;
-        for (auto i = 0; i < 1000; ++i) {
-            auto n = randomNumberBetween(0, 1);
-            if (n) {
-                pcq.produce();
-                ++produces;
-            }
-            else {
-                pcq.consume([]{});
-                ++consumes;
-            }
-            std::cout << "Depth " << pcq.depth() << " = " << produces << " - " << consumes << '\n';
-            assert(pcq.depth() == (produces - consumes));
+TEST_CASE("ProducerConsumerQueue") {
+    util::ProducerConsumerQueue<> pcq;
+    auto produces = 0;
+    auto consumes = 0;
+    for (auto i = 0; i < 1000; ++i) {
+        auto n = randomNumberBetween(0, 1);
+        if (n) {
+            pcq.produce();
+            ++produces;
         }
+        else {
+            pcq.consume([]{});
+            ++consumes;
+        }
+        CHECK(pcq.depth() == (produces - consumes));
     }
 }
