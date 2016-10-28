@@ -8,6 +8,8 @@
 
 #include <util/log.hpp>
 
+#include <boost/log/attributes/constant.hpp>
+
 #include <websocketpp/logger/basic.hpp>
 #include <websocketpp/logger/levels.hpp>
 

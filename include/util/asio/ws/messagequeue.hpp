@@ -15,6 +15,7 @@
 #include <websocketpp/connection.hpp>
 
 #include <boost/asio/io_service.hpp>
+#include <boost/asio/buffer.hpp>
 
 namespace util { namespace asio { namespace ws {
 
