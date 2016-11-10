@@ -51,11 +51,9 @@ TEST_CASE("WebSocket acceptor/connector test") {
     auto host = "localhost";
     auto service = "1337";
 
-    //auto query = decltype(resolver)::query(
-    //    host, service, boost::asio::ip::resolver_query_base::numeric_service);
     boost::asio::ip::tcp::resolver resolver {ioThread.context()};
-    auto epIter = resolver.resolve({host, service});
-    acceptor.listen(*epIter);
+    auto endpointerIterator = resolver.resolve({host, service});
+    acceptor.listen(*endpointerIterator);
 
     std::array<uint8_t, 1024> serverBuffer;
     // Keep the server buffer here on the stack so it outlives all async operations.
@@ -74,7 +72,6 @@ TEST_CASE("WebSocket acceptor/connector test") {
     // We need this special use_future to work around an Asio bug on gcc 5+.
 
     connector.asyncConnect(clientMq, host, service, use_future).get();
-
 
     clientMq.asyncSend(boost::asio::buffer("Yo dawg"), use_future).get();
 
