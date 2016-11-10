@@ -6,8 +6,16 @@ if(CMAKE_SYSTEM_NAME MATCHES "AVR")
     set(AVR ON)
 endif()
 
+set(requiredCxxFeatures
+    cxx_return_type_deduction
+)
+
 if(AVR)
     add_library(cxx-util INTERFACE)
+    target_compile_features(cxx-util
+        INTERFACE
+            ${requiredCxxFeatures}
+    )
 else()
     set(Boost_USE_STATIC_LIBS ON)
     find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem thread log date_time regex program_options)
@@ -17,12 +25,14 @@ else()
     add_library(cxx-util STATIC ${sources})
     set_target_properties(cxx-util
         PROPERTIES
-            CXX_STANDARD 14
-            CXX_STANDARD_REQUIRED ON
             POSITION_INDEPENDENT_CODE ON
             VERSION ${PROJECT_VERSION}
             SOVERSION ${PROJECT_VERSION_MAJOR}
             MACOSX_RPATH ON
+    )
+    target_compile_features(cxx-util
+        PUBLIC
+            ${requiredCxxFeatures}
     )
     target_link_libraries(cxx-util PUBLIC Boost::filesystem Boost::log Boost::program_options)
     target_include_directories(cxx-util
