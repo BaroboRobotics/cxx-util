@@ -1,0 +1,53 @@
+syntax = "proto2";
+
+import "nanopb.proto";
+
+package rpc.test;
+
+message GetProperty {
+    message In {}
+    message Out {
+        optional float value = 1;
+    }
+}
+
+message SetProperty {
+    message In {
+        optional float value = 1;
+    }
+    message Out {}
+}
+
+message RpcRequest {
+    optional uint32 requestId = 1;
+
+    oneof arg {
+        GetProperty.In getProperty = 2;
+        SetProperty.In setProperty = 3;
+    }
+}
+
+message RpcReply {
+    optional uint32 requestId = 1;
+
+    oneof arg {
+        GetProperty.Out getProperty = 2;
+        SetProperty.Out setProperty = 3;
+    }
+}
+
+message Quux {}
+
+message ClientToServer {
+    oneof arg {
+        RpcRequest rpcRequest = 1;
+        Quux quux = 2;
+    }
+}
+
+message ServerToClient {
+    oneof arg {
+        RpcReply rpcReply = 1;
+        Quux quux = 2;
+    }
+}
