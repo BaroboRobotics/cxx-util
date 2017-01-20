@@ -36,7 +36,9 @@ message RpcReply {
     }
 }
 
-message Quux {}
+message Quux {
+    optional uint32 value = 1;
+}
 
 message ClientToServer {
     oneof arg {
