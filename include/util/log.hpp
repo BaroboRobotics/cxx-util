@@ -6,9 +6,10 @@
 #ifndef UTIL_LOG_HPP
 #define UTIL_LOG_HPP
 
+#include <boost/log/attributes/constant.hpp>
+#include <boost/log/keywords/channel.hpp>
 #include <boost/log/sources/severity_channel_logger.hpp>
 #include <boost/log/sources/record_ostream.hpp>
-#include <boost/log/keywords/channel.hpp>
 
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/variables_map.hpp>
