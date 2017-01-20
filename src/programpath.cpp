@@ -49,7 +49,6 @@ fs::path programPath () {
 }
 
 }
-// TODO: implement using GetModuleFileName()
 
 #elif BOOST_OS_MACOS
 
