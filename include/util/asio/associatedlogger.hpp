@@ -97,7 +97,7 @@ public:
 
     LoggerHandler (LoggerCompletionToken<CompletionToken> token)
         : mHandler(token.original())
-        , mLog(token.log())
+        , mLog(std::make_shared<log::Logger>(token.log()))
     {}
 
     template <class... Params>
@@ -105,7 +105,7 @@ public:
         mHandler(std::forward<Params>(ps)...);
     }
 
-    log::Logger& log () const { return mLog; }
+    log::Logger& log () const { return *mLog; }
     WrappedHandlerType& original () { return mHandler; }
 
     friend void* asio_handler_allocate (size_t size, LoggerHandler* self) {
@@ -131,7 +131,9 @@ public:
 
 private:
     WrappedHandlerType mHandler;
-    mutable log::Logger mLog;
+    // log::Logger's move constructor is NOT noexcept, which kinda cramps our style. Hide it behind
+    // a shared_ptr to make it so.
+    std::shared_ptr<log::Logger> mLog;
 };
 
 } // _
