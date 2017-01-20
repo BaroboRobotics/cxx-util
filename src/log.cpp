@@ -67,6 +67,9 @@ boost::log::formatter defaultFormatter () {
         << expr::if_(expr::has_attr<std::string>("Channel"))[
             expr::stream << " " << expr::attr<std::string>("Channel")
         ]
+        << expr::if_(expr::has_attr<std::string>("Role"))[
+            expr::stream << " [" << expr::attr<std::string>("Role") << "]"
+        ]
         << expr::if_(expr::has_attr<std::string>("Protocol"))[
             expr::stream << " " << expr::attr<std::string>("Protocol")
         ]
