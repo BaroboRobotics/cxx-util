@@ -6,8 +6,7 @@
 // Infrastructure for easily defining composed operations. Here be footguns.
 //
 // TODO:
-// - Move cont initialization and Task construction into Data ctor.
-// - Pass handler as last argument to Task ctor if it wants it. Use forward_as_tuple.
+// - Create OpPtr so Op doesn't have to know anything about the Handler type
 //
 // - Implement a fork-join pool of some sort. Thoughts: difficult to fork safely inside a task,
 //   because the forked task may need to run on the same execution context, but that is only
@@ -32,29 +31,18 @@
 //
 // - Require Task::operator() to return some sort of failsafe object to:
 //   1. require that op.complete() is called at least once
-//   2. require that yield is used with op.next()
+//   2. require that yield is used with op()
 //
 // - EBO for Continuation::Data members
 // - standardese
 // - Hunter
-//
-//
-// DONE:
-// - Replace op.next() with op()
-// - Make op() take parameters which dictate where the results of the next suboperation will be
-//   stored. This solves two problems:
-//   1. The programmer can decide to use a single error_code object to implement exception-like
-//      short circuit control flow (the `if (!ec) reenter (op)` idiom), but add a second error_code
-//      object if manual error-checking is required in a part of the code.
-//   2. The parameters of Task::operator() don't have to be able to handle multiple types. No more
-//      variant bullshit.
-//
 
 #ifndef UTIL_ASIO_OP_HPP
 #define UTIL_ASIO_OP_HPP
 
 #include <util/asio/associatedlogger.hpp>
 #include <util/asio/handler_hooks.hpp>
+#include <util/asio/handlerptr.hpp>
 #include <util/index_sequence.hpp>
 
 #include <boost/scope_exit.hpp>
@@ -68,7 +56,7 @@ namespace util { namespace asio {
 
 inline namespace v2 {
 
-template <class Task, class Handler>
+template <class Task>
 class Op {
     // A non-movable, non-copyable reference to an operation in flight. Op objects are passed as the
     // sole parameter to Task objects. Op objects provide the means to perform three actions:
@@ -77,12 +65,8 @@ class Op {
     //   3. Access the Logger object associated with the operation.
 
 public:
-    template <class DeducedTask, class DeducedHandler>
-    friend void startSimpleOp(DeducedTask&&, DeducedHandler&&);
-    // Create and launch an Op. This is the only way to create an Op.
-
-    template <class Task_, class ArgTuple, size_t... NMinusOneIndices>
-    friend void startOpImpl(ArgTuple&&, util::index_sequence<NMinusOneIndices...>&&);
+    template <class Task_, class ArgTuple, size_t... NMinusOne>
+    friend void startOpImpl(ArgTuple&&, util::index_sequence<NMinusOne...>&&);
     // Create and launch an Op. This is the only other way to create an Op. :)
 
     Op() = delete;
@@ -100,186 +84,155 @@ public:
         // Return a continuation handler which will store the results of the suboperation it is
         // passed to in the lvalues referred to by `results`. You can pass `std::ignore` as one of
         // the arguments to this function if you would like to discard some of the results.
-        return {std::move(data), std::tie(results...)};
+        return {std::move(data), std::tie(results...), cont};
     }
 
     template <class... Args>
     void complete (Args&&... args) {
         // Deallocate the task and invoke its completion handler.
 
-        // `args` may refer to data owned by the Op's task, but `complete` will delete the task.
+        // `args` may refer to data owned by the Op's task, but `invoke` will delete the task.
         // Therefore, we need to force a move/copy with std::decay to make sure the args are on the
         // stack. std::decay_copy, where you at? :(
-        (*data).get_deleter()((*data).release())(std::decay_t<Args>{std::forward<Args>(args)}...);
+        data->invoke(std::decay_t<Args>{std::forward<Args>(args)}...);
     }
 
     log::Logger& log () const {
-        return ::util::asio::getAssociatedLogger((*data)->handler);
+        return ::util::asio::getAssociatedLogger(data->handler());
     }
 
 private:
-    struct Data;
-    struct Deleter;
-    using DataPtr = std::unique_ptr<Data, Deleter>;
-    std::shared_ptr<DataPtr> data;
-    Op(std::shared_ptr<DataPtr>&& data): data(std::move(data)) {}
+    using Handler = typename Task::HandlerType;
+    using TaskPtr = HandlerPtr<Task, Handler>;
+    std::shared_ptr<TaskPtr> data;
+    bool cont;  // Outside data to make uses_allocator propagation easier
+    explicit Op(std::shared_ptr<TaskPtr>&& d, bool c = true)
+        : data(std::move(d)), cont(c)
+    {
+        (**data)(*this);
+    }
 };
 
-template <class Task, class Handler>
+template <class Task>
 template <class... Results>
-class Op<Task, Handler>::Continuation {
+class Op<Task>::Continuation {
 public:
-    friend class Op<Task, Handler>;
+    friend class Op<Task>;
 
     template <class... Args>
     void operator()(Args&&... args) {
         // Invoke the task as a continuation of its previous invocation. You will likely never need
         // to call this function directly, but rather you'll just let Asio's event loop invoke it.
         results = std::forward_as_tuple(args...);
-        Op op{std::move(data)};
-        auto& d = **op.data;
-        d.cont = true;
-        d.task(op);
+        Op{std::move(data)};
     }
 
 private:
-    using DataPtr = typename Op<Task, Handler>::DataPtr;
-    std::shared_ptr<DataPtr> data;
+    using TaskPtr = typename Op<Task>::TaskPtr;
+    std::shared_ptr<TaskPtr> data;
     std::tuple<Results&...> results;
-    Continuation(std::shared_ptr<DataPtr>&& p, std::tuple<Results&...>&& r)
+    bool cont;
+    Continuation(std::shared_ptr<TaskPtr>&& p, std::tuple<Results&...>&& r, bool c)
         : data(std::move(p))
-        , results(std::move(r)) {}
+        , results(std::move(r))
+        , cont(c)
+    {}
 
     // ===================================================================================
     // Handler hooks
 
     friend log::Logger& getAssociatedLogger(const Continuation& self) {
-        return ::util::asio::getAssociatedLogger((*self.data)->handler);
+        return ::util::asio::getAssociatedLogger(self.data->handler());
     }
 
     friend void* asio_handler_allocate(size_t size, Continuation* self) {
-        return handler_hooks::allocate(size, (*self->data)->handler);
+        return handler_hooks::allocate(size, self->data->handler());
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, Continuation* self) {
-        handler_hooks::deallocate(pointer, size, (*self->data)->handler);
+        handler_hooks::deallocate(pointer, size, self->data->handler());
     }
 
     template <class Function>
     friend void asio_handler_invoke(Function&& f, Continuation* self) {
-        handler_hooks::invoke(std::forward<Function>(f), (*self->data)->handler);
+        handler_hooks::invoke(std::forward<Function>(f), self->data->handler());
     }
 
     friend bool asio_handler_is_continuation(Continuation* self) {
         // Composed operations naturally require their own continuation logic.
-        return (*self->data)->cont;
+        return self->cont;
     }
 };
 
 // =======================================================================================
 // Inline implementation
 
-template <class Task, class ArgTuple, size_t... NMinusOneIndices>
-void startOpImpl(ArgTuple&& t, util::index_sequence<NMinusOneIndices...>&&) {
+namespace _ {
+
+template <class Task, class Handler>
+struct TaskWrapper: Task {
+    using HandlerType = Handler;
+    using Task::operator();
+    template <class... Args>
+    TaskWrapper(Args&&... args): Task(std::forward<Args>(args)...) {}
+};
+
+template <class Task, class Handler, class = void>
+struct ChooseTaskType_ {
+    using Type = TaskWrapper<Task, Handler>;
+};
+
+template <class...> using ToVoid = void;
+
+template <class Task, class Handler>
+struct ChooseTaskType_<Task, Handler, ToVoid<typename Task::HandlerType>> {
+    static_assert(std::is_same<typename Task::HandlerType, Handler>::value,
+            "Attempted to start Op with incompatible handler type");
+    using Type = Task;
+};
+
+template <class Task, class Handler>
+using ChooseTaskType = typename ChooseTaskType_<Task, Handler>::Type;
+// If Task has a member typedef HandlerType, this alias evaluates to Task, after static_asserting
+// HandlerType equals Handler. Otherwise, this alias evaluates to a TaskWrapper, which has the
+// necessary member typedef. This allows Op<Task> to take a single template parameter rather than
+// a redundant two, which makes compiler errors far, far, far, far more legible.
+
+}  // _
+
+template <class Task, class ArgTuple, size_t... NMinusOne>
+void startOpImpl(ArgTuple&& t, util::index_sequence<NMinusOne...>&&) {
     constexpr auto handlerIndex = std::tuple_size<std::decay_t<ArgTuple>>::value - 1;
     auto&& handler = std::get<handlerIndex>(std::forward<ArgTuple>(t));
     using Handler = std::decay_t<decltype(handler)>;
 
     static_assert(!std::is_same<Task, Handler>::value, "this is a terrible idea");
-    static_assert(std::is_nothrow_move_constructible<Handler>::value,
-            "Handler move constructor must be noexcept");
 
-    using Op = Op<Task, Handler>;
-    using Data = typename Op::Data;
-    using DataPtr = typename Op::DataPtr;
+    using ActualTask = _::ChooseTaskType<Task, Handler>;
+    using Op = Op<ActualTask>;
+    using TaskPtr = typename Op::TaskPtr;
 
-    auto vp = handler_hooks::allocate(sizeof(Data), handler);
-    Data* p = nullptr;
+    auto cont = handler_hooks::is_continuation(handler);
 
-    BOOST_SCOPE_EXIT_ALL(&) {
-        if (!p) {
-            // An exception was thrown constructing Data. `handler` is still safe to use because it
-            // comes after `task` in Data's initialization. The Handler type itself is nothrow move
-            // constructible, because we assert so above, and the only object that comes after it is
-            // a bool, which obviously cannot throw. Therefore, any exception must have originated
-            // from `task`'s constructor, in which case our `handler` cannot have been moved-from,
-            // or possibly from `handler`'s copy constructor, in which case we obviously still have
-            // a copy.
-            handler_hooks::deallocate(vp, sizeof(Data), handler);
-        }
-    };
-
-    p = new (vp) Data{
+    auto p = std::make_shared<TaskPtr>(
             std::forward<decltype(handler)>(handler),
-            Task{std::get<NMinusOneIndices>(std::forward<ArgTuple>(t))...},
-            handler_hooks::is_continuation(handler)};
+            std::get<NMinusOne>(std::forward<ArgTuple>(t))...);
 
-    Op op{std::make_shared<DataPtr>(p)};
-    (*op.data)->task(op);
+    Op{std::move(p), cont};
 }
 
-template <class Task, class... Args,
-        class Indices = util::make_index_sequence_t<sizeof...(Args) - 1>>
+template <class Task, class... Args>
 void startOp(Args&&... args) {
     static_assert(sizeof...(Args) > 0, "Asynchronous operations need at least one argument");
+    using Indices = util::make_index_sequence_t<sizeof...(Args) - 1>;
     startOpImpl<Task>(std::forward_as_tuple(std::forward<Args>(args)...), Indices{});
 }
 
 template <class DeducedTask, class DeducedHandler>
 void startSimpleOp(DeducedTask&& task, DeducedHandler&& handler) {
     using Task = std::decay_t<DeducedTask>;
-    using Handler = std::decay_t<DeducedHandler>;
-    static_assert(!std::is_same<Task, Handler>::value, "this is a terrible idea");
-    static_assert(std::is_nothrow_move_constructible<Handler>::value,
-            "Handler move constructor must be noexcept");
-
-    using Op = Op<Task, Handler>;
-    using Data = typename Op::Data;
-    using DataPtr = typename Op::DataPtr;
-
-    auto vp = handler_hooks::allocate(sizeof(Data), handler);
-    Data* p = nullptr;
-
-    BOOST_SCOPE_EXIT_ALL(&) {
-        if (!p) {
-            // An exception was thrown constructing Data. `handler` is still safe to use because it
-            // comes after `task` in Data's initialization. The Handler type itself is nothrow move
-            // constructible, because we assert so above, and the only object that comes after it is
-            // a bool, which obviously cannot throw. Therefore, any exception must have originated
-            // from `task`'s constructor, in which case our `handler` cannot have been moved-from,
-            // or possibly from `handler`'s copy constructor, in which case we obviously still have
-            // a copy.
-            handler_hooks::deallocate(vp, sizeof(Data), handler);
-        }
-    };
-
-    p = new (vp) Data{
-            std::forward<DeducedHandler>(handler),
-            std::forward<DeducedTask>(task),
-            handler_hooks::is_continuation(handler)};
-
-    Op op{std::make_shared<DataPtr>(p)};
-    (*op.data)->task(op);
+    startOp<Task>(std::forward<DeducedTask>(task), std::forward<DeducedHandler>(handler));
 }
-
-template <class Task, class Handler>
-struct Op<Task, Handler>::Data {
-    Handler handler;
-    Task task;
-    bool cont;
-};
-
-template <class Task, class Handler>
-struct Op<Task, Handler>::Deleter {
-    Handler operator()(Data* p) const noexcept {
-        static_assert(std::is_nothrow_move_constructible<Handler>::value,
-                "Handler move constructor must be noexcept");
-        auto h = std::move(p->handler);
-        p->~Data();
-        handler_hooks::deallocate(p, sizeof(Data), h);
-        return h;
-    }
-};
 
 }}}  // util::asio::v2
 

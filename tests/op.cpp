@@ -46,10 +46,16 @@ struct TestHandler {
 
         ++self->allocations;
 
+        auto lg = util::asio::getAssociatedLogger(*self);
+        BOOST_LOG(lg) << "allocated " << p << " (" << size << " bytes)";
+
         return p;
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, TestHandler* self) {
+        auto lg = util::asio::getAssociatedLogger(*self);
+        BOOST_LOG(lg) << "deallocating " << pointer << " (" << size << " bytes)";
+
         auto it = self->allocationTable.find(pointer);
         REQUIRE(it != self->allocationTable.end());
         // This allocation exists.
@@ -91,19 +97,26 @@ thread_local bool TestHandler::invokedOnMyContext = false;
 
 template <class Handler>
 struct TestOp {
+    using HandlerType = Handler;
+    using allocator_type = std::scoped_allocator_adaptor<beast::handler_alloc<char, Handler>>;
+    // or just:
+    //using allocator_type = beast::handler_alloc<char, Handler>;
+
     boost::asio::steady_timer& timer;
     boost::asio::coroutine coro;
     boost::system::error_code ec;
     int count = 0;
     constexpr static int kMaxCount = 10;
 
-    TestOp(boost::asio::steady_timer& t): timer(t) {}
+    std::vector<int, allocator_type> v;
 
-    void operator()(util::asio::Op<TestOp, Handler>& op);
+    TestOp(boost::asio::steady_timer& t, allocator_type alloc): timer(t), v(alloc) {}
+
+    void operator()(util::asio::Op<TestOp>& op);
 };
 
 template <class Handler>
-void TestOp<Handler>::operator()(util::asio::Op<TestOp, Handler>& op) {
+void TestOp<Handler>::operator()(util::asio::Op<TestOp>& op) {
     auto role = boost::log::attribute_cast<boost::log::attributes::constant<std::string>>(
             op.log().get_attributes()["Role"]);
     CHECK(role.get() == "struct");
@@ -114,6 +127,7 @@ void TestOp<Handler>::operator()(util::asio::Op<TestOp, Handler>& op) {
             timer.expires_from_now(std::chrono::milliseconds(100));
             yield timer.async_wait(op(ec));
             CHECK(TestHandler::invokedOnMyContext);
+            v.insert(v.end(), 1024, count);
         }
         op.complete(ec, count);
     }
