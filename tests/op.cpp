@@ -1,252 +1,191 @@
 #include <util/doctest.h>
-#include <util/asio/asynccompletion.hpp>
-#include <util/asio/op.hpp>
 #include <util/log.hpp>
+
+#include <composed/op_logger.hpp>
+
+#include <beast/core/async_completion.hpp>
+#include <beast/core/handler_alloc.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/steady_timer.hpp>
+
+#include <boost/scope_exit.hpp>
 
 #include <chrono>
 #include <tuple>
 
 #include <boost/asio/yield.hpp>
 
-struct TestHandler {
-    // A final handler to aid in checking all the handler hooks are being exercised correctly.
+struct test_handler {
+    // A final handler to aid in checking that all the handler hooks are being exercised correctly.
 
     const bool cont;
 
+    std::shared_ptr<util::log::Logger> lgp;
+    // Wrap the logger in a shared_ptr to make sure test_handler is move-constructible.
+
+    using logger_type = composed::logger;
+    logger_type lg;
+    logger_type get_logger() const { return lg; }
+
+    test_handler(bool c, const std::string& role)
+            : cont(c), lgp(std::make_shared<util::log::Logger>()), lg(lgp.get()) {
+        lg.add_attribute("Role", boost::log::attributes::constant<std::string>(role));
+    }
+
     size_t allocations = 0;
     size_t deallocations = 0;
-    std::map<void*, size_t> allocationTable;
+    std::map<void*, size_t> allocation_table;
 
-    static thread_local bool invokedOnMyContext;
+    static thread_local bool invoked_on_my_context;
 
     void operator()(boost::system::error_code ec, int count) {
         CHECK(allocations > 0);
         // There was at least one allocation.
 
-        CHECK(allocationTable.empty());
+        CHECK(allocation_table.empty());
         CHECK(deallocations == allocations);
         // But they were all deallocated before the handler was invoked.
 
-        util::log::Logger lg;
-        BOOST_LOG(lg) << "TestHandler: " << count << " (" << ec.message() << ")";
+        BOOST_LOG(lg) << "test_handler: " << count << " (" << ec.message() << ")";
     }
 
-    friend void* asio_handler_allocate(size_t size, TestHandler* self) {
+    friend void* asio_handler_allocate(size_t size, test_handler* self) {
         // Forward to the default implementation of asio_handler_allocate.
         int dummy;
-        auto p = util::asio::handler_hooks::allocate(size, dummy);
+        auto p = beast_asio_helpers::allocate(size, dummy);
 
         bool inserted;
-        std::tie(std::ignore, inserted) = self->allocationTable.insert(std::make_pair(p, size));
+        std::tie(std::ignore, inserted) = self->allocation_table.insert(std::make_pair(p, size));
         CHECK(inserted);
         // This allocation is new.
 
         ++self->allocations;
 
-        auto lg = util::asio::getAssociatedLogger(*self);
-        BOOST_LOG(lg) << "allocated " << p << " (" << size << " bytes)";
+        BOOST_LOG(self->lg) << "allocated " << p << " (" << size << " bytes)";
 
         return p;
     }
 
-    friend void asio_handler_deallocate(void* pointer, size_t size, TestHandler* self) {
-        auto lg = util::asio::getAssociatedLogger(*self);
-        BOOST_LOG(lg) << "deallocating " << pointer << " (" << size << " bytes)";
+    friend void asio_handler_deallocate(void* pointer, size_t size, test_handler* self) {
+        BOOST_LOG(self->lg) << "deallocating " << pointer << " (" << size << " bytes)";
 
-        auto it = self->allocationTable.find(pointer);
-        REQUIRE(it != self->allocationTable.end());
+        auto it = self->allocation_table.find(pointer);
+        REQUIRE(it != self->allocation_table.end());
         // This allocation exists.
 
         CHECK(size == it->second);
         // And it is the stipulated size.
 
-        self->allocationTable.erase(it);
+        self->allocation_table.erase(it);
         ++self->deallocations;
 
         // Forward to the default implementation of asio_handler_deallocate.
         int dummy;
-        util::asio::handler_hooks::deallocate(pointer, size, dummy);
+        beast_asio_helpers::deallocate(pointer, size, dummy);
     }
 
     template <class Function>
-    friend void asio_handler_invoke(Function&& function, TestHandler* self) {
+    friend void asio_handler_invoke(Function&& function, test_handler* self) {
         BOOST_SCOPE_EXIT_ALL(&) {
-            TestHandler::invokedOnMyContext = false;
+            test_handler::invoked_on_my_context = false;
         };
-        TestHandler::invokedOnMyContext = true;
+        test_handler::invoked_on_my_context = true;
         // Composed operations can check this thread_local to ensure that their continuations were
         // invoked through this function.
 
         // Forward to the default implementation of asio_handler_invoke.
         int dummy;
-        util::asio::handler_hooks::invoke(std::forward<Function>(function), dummy);
+        beast_asio_helpers::invoke(std::forward<Function>(function), dummy);
     }
 
-    friend bool asio_handler_is_continuation(TestHandler* self) {
+    friend bool asio_handler_is_continuation(test_handler* self) {
         return self->cont;
     }
 };
 
-thread_local bool TestHandler::invokedOnMyContext = false;
+thread_local bool test_handler::invoked_on_my_context = false;
 
 // =======================================================================================
-// A struct-based composed operation implementation
+// A composed operation implementation
 
-template <class Handler>
-struct TestOp {
-    using HandlerType = Handler;
-    using allocator_type = std::scoped_allocator_adaptor<beast::handler_alloc<char, Handler>>;
-    // or just:
-    //using allocator_type = beast::handler_alloc<char, Handler>;
+// SomeType exists just to test that the COMPOSED_OP macro correctly forwards extra template
+// arguments, whether or not the user passes them.
+template <class Handler = void(boost::system::error_code, int), class SomeType = int>
+struct test_op {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
 
     boost::asio::steady_timer& timer;
     boost::asio::coroutine coro;
     boost::system::error_code ec;
     int count = 0;
-    constexpr static int kMaxCount = 10;
+    constexpr static int k_max_count = 10;
 
     std::vector<int, allocator_type> v;
 
-    TestOp(boost::asio::steady_timer& t, allocator_type alloc): timer(t), v(alloc) {}
+    composed::associated_logger_t<handler_type> lg;
 
-    void operator()(util::asio::Op<TestOp>& op);
+    test_op(handler_type& h, boost::asio::steady_timer& t)
+            : timer(t), v(allocator_type(h)), lg(composed::get_associated_logger(h)) {}
+
+    void operator()(composed::op<test_op>& op);
 };
 
-template <class Handler>
-void TestOp<Handler>::operator()(util::asio::Op<TestOp>& op) {
+template <class Handler, class Int>
+void test_op<Handler, Int>::operator()(composed::op<test_op>& op) {
     auto role = boost::log::attribute_cast<boost::log::attributes::constant<std::string>>(
-            op.log().get_attributes()["Role"]);
+            lg.get_attributes()["Role"]);
     CHECK(role.get() == "struct");
 
-    BOOST_LOG(op.log()) << "Task: " << count;
+    BOOST_LOG(lg) << "Task: " << count;
     if (!ec) reenter (coro) {
-        while (++count < kMaxCount) {
+        while (++count < k_max_count) {
             timer.expires_from_now(std::chrono::milliseconds(100));
-            yield timer.async_wait(op(ec));
-            CHECK(TestHandler::invokedOnMyContext);
+            yield return timer.async_wait(op(ec));
+            CHECK(test_handler::invoked_on_my_context);
             v.insert(v.end(), 1024, count);
         }
-        op.complete(ec, count);
     }
-    else {
-        op.complete(ec, count);
-    }
+    op.complete(ec, count);
 }
 
-template <class Token>
-auto asyncTestStruct(boost::asio::steady_timer& timer, Token&& token) {
-    util::asio::AsyncCompletion<Token, void()> init { std::forward<Token>(token) };
-
-    util::asio::startOp<TestOp<decltype(init.handler)>>(timer, std::move(init.handler));
-
-    return init.result.get();
+// You can define the initiating function like so:
+template <class... Args>
+auto async_test0(Args&&... args) {
+    return composed::async_run<test_op<>>(std::forward<Args>(args)...);
 }
 
-// =======================================================================================
-// A lambda-based composed operation implementation
-
+// but you can always do things the traditional way:
 template <class Token>
-auto asyncTestLambda(boost::asio::steady_timer& timer, Token&& token) {
-    util::asio::AsyncCompletion<Token, void()> init { std::forward<Token>(token) };
-
-    util::asio::startSimpleOp(
-    [ &timer
-    , coro = boost::asio::coroutine{}
-    , ec = boost::system::error_code{}
-    , count = 0
-    ](auto& op) mutable {
-        constexpr int kMaxCount = 10;
-        auto role = boost::log::attribute_cast<boost::log::attributes::constant<std::string>>(
-                op.log().get_attributes()["Role"]);
-        CHECK(role.get() == "lambda");
-
-        BOOST_LOG(op.log()) << "Task: " << count;
-        if (!ec) reenter (coro) {
-            while (++count < kMaxCount) {
-                timer.expires_from_now(std::chrono::milliseconds(100));
-                yield timer.async_wait(op(ec));
-                CHECK(TestHandler::invokedOnMyContext);
-            }
-            op.complete(ec, count);
-        }
-        else {
-            op.complete(ec, count);
-        }
-    }, std::move(init.handler));
-
+auto async_test1(boost::asio::steady_timer& t, Token&& token) {
+    beast::async_completion<Token, void(boost::system::error_code, int)> init{token};
+    composed::start_op<test_op<decltype(init.handler)>>(std::move(init.handler), t);
     return init.result.get();
 }
 
 // =======================================================================================
 // Test cases
 
-TEST_CASE("can start an Op") {
+TEST_CASE("can start an op") {
     boost::asio::io_service context;
     boost::asio::steady_timer timer{context};
 
-    auto token = util::asio::addAssociatedLogger(TestHandler{false}, util::log::Logger{});
-
-    SUBCASE("with a struct Task") {
-        token.log().add_attribute("Role", boost::log::attributes::constant<std::string>("struct"));
-        asyncTestStruct(timer, std::move(token));
+    SUBCASE("with a start_op-driven initiating function") {
+        async_test0(timer, test_handler{false, "struct"});
         context.run();
     }
 
-    SUBCASE("with a lambda Task") {
-        token.log().add_attribute("Role", boost::log::attributes::constant<std::string>("lambda"));
-        asyncTestLambda(timer, std::move(token));
+    SUBCASE("with an async-run-driven initiating function") {
+        async_test1(timer, test_handler{false, "struct"});
+        context.run();
+    }
+
+    SUBCASE("with an async_run initiating function") {
+        using composed::async_run;
+        async_run<test_op<>>(timer, test_handler{false, "struct"});
         context.run();
     }
 }
 
 #include <boost/asio/unyield.hpp>
-
-
-
-
-
-
-
-
-
-
-
-#if 0
-// Just an idea
-
-template <class Token = composed::token>
-struct test_op: composed::operation<Token, void(error_coode)> {
-    using allocator_type = typename test_op::allocator_type;
-
-    boost::asio::steady_timer& timer;
-    boost::system::error_code ec;
-
-    std::vector<int, allocator_type> v;
-
-    test_op(boost::asio::steady_timer& timer, allocator_type alloc): v(alloc) {}
-
-    auto operator()(composed::op<test_op>& op) {
-        if (!ec) COMPOSED_REENTER (this) {
-            timer.expires_from_now(std::chrono::milliseconds(100));
-            COMPOSED_YIELD return timer.async_wait(op(ec));
-        }
-        return op.complete(ec);
-    }
-};
-
-template <class Token>
-auto async_test(boost::asio::steady_timer& timer, Token&& token) {
-    composed::async_completion<Token, void(error_code)> init{std::forward<Token>(token)};
-    composed::start_op<test_op<decltype(init.handler)>>(timer, std::move(init.handler));
-    return init.result.get();
-}
-    // or
-template <class... Args>
-auto async_test(Args&&... args) {
-    return composed::async_run<test_op<>>(std::forward<Args>(args)...);
-}
-
-#endif
