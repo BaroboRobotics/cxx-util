@@ -2,6 +2,8 @@
 #include <util/log.hpp>
 
 #include <composed/op_logger.hpp>
+#include <composed/timed.hpp>
+#include <composed/signalled.hpp>
 
 #include <beast/core/async_completion.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -13,6 +15,8 @@
 
 #include <chrono>
 #include <tuple>
+
+#include <csignal>
 
 #include <boost/asio/yield.hpp>
 
@@ -28,7 +32,7 @@ struct test_handler {
     logger_type lg;
     logger_type get_logger() const { return lg; }
 
-    test_handler(bool c, const std::string& role)
+    explicit test_handler(const std::string& role, bool c = false)
             : cont(c), lgp(std::make_shared<util::log::Logger>()), lg(lgp.get()) {
         lg.add_attribute("Role", boost::log::attributes::constant<std::string>(role));
     }
@@ -62,13 +66,13 @@ struct test_handler {
 
         ++self->allocations;
 
-        BOOST_LOG(self->lg) << "allocated " << p << " (" << size << " bytes)";
+        //BOOST_LOG(self->lg) << "allocated " << p << " (" << size << " bytes)";
 
         return p;
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, test_handler* self) {
-        BOOST_LOG(self->lg) << "deallocating " << pointer << " (" << size << " bytes)";
+        //BOOST_LOG(self->lg) << "deallocating " << pointer << " (" << size << " bytes)";
 
         auto it = self->allocation_table.find(pointer);
         REQUIRE(it != self->allocation_table.end());
@@ -136,7 +140,7 @@ template <class Handler, class Int>
 void test_op<Handler, Int>::operator()(composed::op<test_op>& op) {
     auto role = boost::log::attribute_cast<boost::log::attributes::constant<std::string>>(
             lg.get_attributes()["Role"]);
-    CHECK(role.get() == "struct");
+    //CHECK(role.get() == "struct");
 
     BOOST_LOG(lg) << "Task: " << count;
     if (!ec) reenter (coro) {
@@ -150,19 +154,14 @@ void test_op<Handler, Int>::operator()(composed::op<test_op>& op) {
     op.complete(ec, count);
 }
 
-// You can define the initiating function like so:
-template <class... Args>
-auto async_test0(Args&&... args) {
-    return composed::async_run<test_op<>>(std::forward<Args>(args)...);
-}
-
-// but you can always do things the traditional way:
+// You can define an initiating function the traditional way, using start_op to start the op:
 template <class Token>
-auto async_test1(boost::asio::steady_timer& t, Token&& token) {
+auto async_test(boost::asio::steady_timer& t, Token&& token) {
     beast::async_completion<Token, void(boost::system::error_code, int)> init{token};
     composed::start_op<test_op<decltype(init.handler)>>(std::move(init.handler), t);
     return init.result.get();
 }
+// or you can also use: composed::async_run<test_op<>>(t, token);
 
 // =======================================================================================
 // Test cases
@@ -171,21 +170,44 @@ TEST_CASE("can start an op") {
     boost::asio::io_service context;
     boost::asio::steady_timer timer{context};
 
-    SUBCASE("with a start_op-driven initiating function") {
-        async_test0(timer, test_handler{false, "struct"});
-        context.run();
-    }
-
-    SUBCASE("with an async-run-driven initiating function") {
-        async_test1(timer, test_handler{false, "struct"});
+    SUBCASE("with a async_completion initiating function") {
+        async_test(timer, test_handler{"async_completion"});
         context.run();
     }
 
     SUBCASE("with an async_run initiating function") {
         using composed::async_run;
-        async_run<test_op<>>(timer, test_handler{false, "struct"});
+        async_run<test_op<>>(timer, test_handler{"async_run"});
         context.run();
     }
+}
+
+TEST_CASE("can set timed expirations on operations") {
+    using namespace std::literals::chrono_literals;
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+
+    SUBCASE("absolute") {
+        async_test(timer, composed::timed(timer, std::chrono::steady_clock::now() + 1150ms,
+                test_handler{"timed-absolute"}));
+        context.run();
+    }
+
+    SUBCASE("relative") {
+        async_test(timer, composed::timed(timer, 150ms,
+                test_handler{"timed-relative"}));
+        context.run();
+    }
+}
+
+TEST_CASE("can set signalled expirations on operations") {
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+
+    async_test(timer, composed::signalled(timer, composed::make_array(SIGINT, SIGTERM),
+            test_handler{"signalled"}));
+    std::raise(SIGTERM);
+    context.run();
 }
 
 #include <boost/asio/unyield.hpp>
