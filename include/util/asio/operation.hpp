@@ -104,20 +104,8 @@ class Operation : public boost::asio::coroutine {
 public:
     using State = OperationState<Coroutine, Handler, Results...>;
 
+    Operation() = delete;
     Operation (boost::intrusive_ptr<State> p) : m(std::move(p)) {}
-
-    Operation (const Operation&) = default;
-    Operation (Operation&& other)
-#if 0
-        noexcept(std::is_nothrow_move_constructible<decltype(m)>::value
-            && std::is_nothrow_copy_constructible<decltype(coro)>::value)
-#endif
-        : boost::asio::coroutine(other)
-        , m(std::move(other.m))
-    {}
-
-    Operation& operator= (const Operation&) = delete;
-    Operation& operator= (Operation&&) = delete;
 
     void runChild () {
         // Create a copy and immediately execute it. To fork a coroutine, use like so:
@@ -240,6 +228,14 @@ public:
         : Base(std::forward<Args>(args)...)
         , handler_(std::forward<H>(h))
     {}
+
+    OperationState(const OperationState&) = delete;
+    OperationState(OperationState&&) = default;
+    OperationState& operator=(const OperationState&) = delete;
+    OperationState& operator=(OperationState&&) = default;
+    // Movable, noncopyable
+
+    ~OperationState() = default;
 
     Handler& handler () {
         return handler_;
