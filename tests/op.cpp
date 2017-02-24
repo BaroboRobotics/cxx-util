@@ -4,6 +4,7 @@
 #include <composed/op_logger.hpp>
 #include <composed/timed.hpp>
 #include <composed/signalled.hpp>
+#include <composed/object.hpp>
 
 #include <beast/core/async_completion.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -207,6 +208,19 @@ TEST_CASE("can set signalled expirations on operations") {
     async_test(timer, composed::signalled(timer, composed::make_array(SIGINT, SIGTERM),
             test_handler{"signalled"}));
     std::raise(SIGTERM);
+    context.run();
+}
+
+TEST_CASE("can set timeouts yet another way") {
+    using namespace std::literals::chrono_literals;
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+    boost::asio::steady_timer timeout_timer{context, 150ms};
+
+    auto j = composed::make_timeout_joiner<boost::system::error_code, int>(
+            timeout_timer, timer, test_handler{"another-timeout"});
+    timeout_timer.async_wait(composed::branch(j, composed::timeout_tag{}));
+    async_test(timer, composed::branch(j));
     context.run();
 }
 
