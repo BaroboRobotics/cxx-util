@@ -16,7 +16,7 @@
 namespace composed {
 
 // =======================================================================================
-// std::void_t (C++17)
+// void_t (C++17)
 
 template <class...> struct void_ { using type = void; };
 template <class... Ts> using void_t = typename void_<Ts...>::type;
@@ -24,7 +24,7 @@ template <class... Ts> using void_t = typename void_<Ts...>::type;
 // language defect not fixed until C++14.
 
 // =======================================================================================
-// std::integer_sequence, std::index_sequence (C++14)
+// integer_sequence, index_sequence (C++14)
 
 // based on http://stackoverflow.com/a/17426611/410767 by Xeo
 template <class T, T... Ints>
@@ -44,8 +44,6 @@ struct merge_and_renumber<integer_sequence<T, I1...>, integer_sequence<T, I2...>
     : integer_sequence<T, I1..., (sizeof...(I1) + I2)...> {
 };
 
-}  // _
-
 template <class T, T N, class = void>
 struct make_integer_sequence_impl
     : _::merge_and_renumber<typename make_integer_sequence_impl<T, N/2>::type,
@@ -56,13 +54,15 @@ struct make_integer_sequence_impl<T, I, std::enable_if_t<I == 0>>: integer_seque
 template <class T, T I>
 struct make_integer_sequence_impl<T, I, std::enable_if_t<I == 1>>: integer_sequence<T, 0> {};
 
+}  // _
+
 // Helper templates
 
 template <size_t... Ints>
 using index_sequence = integer_sequence<size_t, Ints...>;
 
 template <class T, T N>
-using make_integer_sequence = typename make_integer_sequence_impl<T, N>::type;
+using make_integer_sequence = typename _::make_integer_sequence_impl<T, N>::type;
 template <size_t N>
 using make_index_sequence = make_integer_sequence<size_t, N>;
 
@@ -70,7 +70,7 @@ template <class... Ts>
 using index_sequence_for = make_index_sequence<sizeof...(Ts)>;
 
 // =======================================================================================
-// std::apply (C++17)
+// apply (C++17)
 // Based on https://www.preney.ca/paul/archives/1099
 
 namespace _ {
@@ -96,7 +96,8 @@ constexpr decltype(auto) apply(F&& f, Tuple&& t) {
 // =======================================================================================
 // decay_copy (N3255)
 
-template <class T> std::decay_t<T> decay_copy(T&& v) { return std::forward<T>(v); }
+template <class T>
+constexpr std::decay_t<T> decay_copy(T&& v) { return std::forward<T>(v); }
 
 }  // composed
 
