@@ -120,8 +120,7 @@ public:
         op<Task>{std::move(task), true};
     }
 
-    using task_type = Task;
-    using task_ptr = typename op<task_type>::task_ptr;
+    using task_ptr = typename op<Task>::task_ptr;
     const task_ptr& get_task() const { return *task; }
     // Provides access to the operation's task. Useful to add more Asio/Net.TS-style associated
     // object hooks without modifying this class.
@@ -205,8 +204,8 @@ void start_op(Handler&& handler, Args&&... args) {
 
     auto cont = beast_asio_helpers::is_continuation(handler);
 
-    auto p = beast::make_handler_ptr<Task>(
-            std::forward<Handler>(handler), std::forward<Args>(args)...);
+    auto p = beast::handler_ptr<Task, Handler>{
+            std::forward<Handler>(handler), std::forward<Args>(args)...};
 
     op<Task>{std::move(p), cont};
 }
