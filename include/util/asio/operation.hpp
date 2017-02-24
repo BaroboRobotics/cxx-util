@@ -17,6 +17,8 @@
 
 #include <boost/system/error_code.hpp>
 
+#include <boost/scope_exit.hpp>
+
 #include <new>
 #include <stdexcept>
 #include <tuple>
@@ -60,13 +62,16 @@ public:
         ++self->mRefs;
     }
 
-    friend void intrusive_ptr_release (OperationState* self) {
+    friend void intrusive_ptr_release (OperationState* self) try {
         assert(self);
         if (!--self->mRefs) {
 #if 0
+            // This is a bit of a mess at the moment... for one thing, Boost.Log sources are not
+            // nothrow move-constructible. :(
             static_assert(std::is_nothrow_move_constructible<Handler>::value,
                 "Handler's move constructor must be noexcept");
-            static_assert(noexcept(auto r = self->result()), "Operation's result() function must be noexcept");
+            static_assert(std::is_nothrow_move_constructible<std::tuple<Results...>>::value,
+                "Result's move constructor must be noexcept");
 #endif
             // Remove the operation's completion handler and result
             auto h = std::move(self->handler());
@@ -79,6 +84,12 @@ public:
             // Call the operation's completion handler
             applyTuple(std::move(h), std::move(result));
         }
+    }
+    catch (const std::exception& e) {
+        util::log::Logger lg;
+        BOOST_LOG(lg) << "Exception thrown in intrusive_ptr_release! Prepare to crash. "
+                << "Tell Harris to fix his bug. Exception: " << e.what();
+        throw;
     }
 
 private:
@@ -184,16 +195,22 @@ _::Operation<typename std::decay<Coroutine>::type, typename std::decay<Handler>:
 makeOperation (std::tuple<Results...>&& defaultResult, Coroutine&& c, Handler&& h) {
     using State = _::OperationState<
         typename std::decay<Coroutine>::type, typename std::decay<Handler>::type, Results...>;
+
     auto vp = handler_hooks::allocate(sizeof(State), h);
-    try {
-        auto p = new (vp) State(
+    State* p = nullptr;
+
+    BOOST_SCOPE_EXIT_ALL(&) {
+        if (!p) {
+            handler_hooks::deallocate(vp, sizeof(State), h);
+        }
+    };
+
+    p = new (vp) State(
             std::move(defaultResult), std::forward<Coroutine>(c), std::forward<Handler>(h));
-        return boost::intrusive_ptr<State>(p);
-    }
-    catch (...) {
-        handler_hooks::deallocate(vp, sizeof(State), h);
-        throw;
-    }
+    // Handler is the last value constructed in State, so the ScopeExit guard should have a valid
+    // handler to deallocate with in case State's ctor throws.
+
+    return boost::intrusive_ptr<State>(p);
 }
 
 template <class Context, class Coroutine, class CompletionToken, class... Results>
