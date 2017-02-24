@@ -116,7 +116,7 @@ public:
     void operator()(Args&&... args) {
         // Invoke the task as a continuation of its previous invocation. You will likely never need
         // to call this function directly, but rather you'll just let Asio's event loop invoke it.
-        results = std::forward_as_tuple(args...);
+        results = std::forward_as_tuple(std::forward<Args>(args)...);
         op<Task>{std::move(task), true};
     }
 
