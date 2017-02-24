@@ -99,6 +99,46 @@ constexpr decltype(auto) apply(F&& f, Tuple&& t) {
 template <class T>
 constexpr std::decay_t<T> decay_copy(T&& v) { return std::forward<T>(v); }
 
+// =======================================================================================
+// conjunction (C++17)
+// based on http://en.cppreference.com/w/cpp/types/conjunction
+
+template <class...> struct conjunction: std::true_type {};
+template <class B1> struct conjunction<B1>: B1 {};
+template <class B1, class... Bn>
+struct conjunction<B1, Bn...>: std::conditional_t<bool(B1::value), conjunction<Bn...>, B1> {};
+
+// =======================================================================================
+// make_array (library fundamentals TS v2)
+// based on http://en.cppreference.com/w/cpp/experimental/make_array
+
+namespace _ {
+
+template<class> struct not_ref_wrapper: std::true_type {};
+template<class T> struct not_ref_wrapper<std::reference_wrapper<T>>: std::false_type {};
+
+template<class T>
+using not_ref_wrapper_t = not_ref_wrapper<std::decay_t<T>>;
+
+template <class D, class...> struct make_array_return_type_helper { using type = D; };
+
+template <class... Types>
+struct make_array_return_type_helper<void, Types...>: std::common_type<Types...> {
+    static_assert(conjunction<not_ref_wrapper_t<Types>...>::value,
+            "Types cannot contain reference_wrappers when D is void");
+};
+
+template <class D, class... Types>
+using make_array_return_type = std::array<
+        typename make_array_return_type_helper<D, Types...>::type, sizeof...(Types)>;
+
+}  // _
+
+template < class D = void, class... Types>
+constexpr _::make_array_return_type<D, Types...> make_array(Types&&... t) {
+    return {std::forward<Types>(t)... };
+}
+
 }  // composed
 
 #endif
