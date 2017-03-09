@@ -10,6 +10,14 @@ project(cxx-util-tests LANGUAGES C CXX)
 
 find_package(Nanopb REQUIRED)
 
+# Beast doesn't have a find_package config file
+find_path(beastIncludeDir beast/websocket.hpp)
+if(NOT beastIncludeDir)
+    message(FATAL_ERROR "Beast headers not found")
+endif()
+add_library(beast INTERFACE)
+target_include_directories(beast INTERFACE ${beastIncludeDir})
+
 nanopb_generate_cpp(rpcTestPbSources rpcTestPbHeaders rpc-test.proto)
 
 set(rpcTestPbHeaderDirs)
@@ -20,8 +28,12 @@ endforeach()
 
 add_executable(rpc-test rpc-test.cpp ${rpcTestPbSources})
 set_target_properties(rpc-test PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
-target_link_libraries(rpc-test PRIVATE cxx-util)
-target_include_directories(rpc-test PRIVATE ${NANOPB_INCLUDE_DIRS} ${rpcTestPbHeaderDirs})
+target_link_libraries(rpc-test PRIVATE cxx-util beast)
+target_include_directories(rpc-test
+    PRIVATE
+        ${NANOPB_INCLUDE_DIRS}
+        ${rpcTestPbHeaderDirs}
+)
 add_test(NAME rpc-test COMMAND rpc-test)
 
 set(testSources
@@ -38,5 +50,5 @@ if(NOT MSVC)
 endif()
 add_executable(util-test main.cpp ${testSources})
 set_target_properties(util-test PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
-target_link_libraries(util-test PRIVATE cxx-util)
+target_link_libraries(util-test PRIVATE cxx-util beast)
 add_test(NAME util-test COMMAND util-test)
