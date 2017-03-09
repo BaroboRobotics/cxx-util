@@ -19,7 +19,7 @@ if(AVR)
 else()
     set(Boost_USE_STATIC_LIBS ON)
     find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem thread log date_time regex program_options)
-    find_package(websocketpp 0.8.0 REQUIRED)
+    #find_package(websocketpp 0.8.0 REQUIRED)
 
     set(sources src/iothread.cpp src/log.cpp src/programpath.cpp src/version.cpp)
     add_library(cxx-util STATIC ${sources})
@@ -37,12 +37,12 @@ else()
     target_link_libraries(cxx-util PUBLIC Boost::filesystem Boost::log Boost::program_options)
     target_include_directories(cxx-util
         PUBLIC $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
-        PUBLIC ${WEBSOCKETPP_INCLUDE_DIR}
+        #PUBLIC ${WEBSOCKETPP_INCLUDE_DIR}
     )
     target_compile_definitions(cxx-util
         PUBLIC
-            _WEBSOCKETPP_NO_CPP11_SYSTEM_ERROR_
-            _WEBSOCKETPP_CPP11_RANDOM_DEVICE_
+            #_WEBSOCKETPP_NO_CPP11_SYSTEM_ERROR_
+            #_WEBSOCKETPP_CPP11_RANDOM_DEVICE_
             WINVER=0x0600
             _WIN32_WINNT=0x0600
             # By explicitly targeting Windows Vista and later at build time, we avoid some painful

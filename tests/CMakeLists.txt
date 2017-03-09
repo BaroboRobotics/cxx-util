@@ -41,7 +41,7 @@ set(testSources
     callback.cpp
     producerconsumer.cpp
     version.cpp
-    asio-ws.cpp
+    #asio-ws.cpp
 )
 
 # TODO composed.cpp
