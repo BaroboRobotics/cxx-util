@@ -98,7 +98,7 @@ private:
     using task_ptr = beast::handler_ptr<Task, typename Task::handler_type>;
 
     task_ptr task;
-    bool cont;  // Lives outside task to make uses_allocator propagation easier
+    bool cont;
 
     op(task_ptr&& d, bool c): task(std::move(d)), cont(c) {
         (*task)(*this);
@@ -109,13 +109,14 @@ private:
 
 template <class Task, class... Results>
 class op_continuation {
+    // Continuation handler for an `op`. Instances of this class can be passed as handlers to
+    // asynchronous operations to schedule the continuation of an op's task.
+
 public:
     friend class op<Task>;
 
     template <class... Args>
     void operator()(Args&&... args) {
-        // Invoke the task as a continuation of its previous invocation. You will likely never need
-        // to call this function directly, but rather you'll just let Asio's event loop invoke it.
         results = std::forward_as_tuple(std::forward<Args>(args)...);
         op<Task>{std::move(task), true};
     }
