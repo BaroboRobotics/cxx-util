@@ -225,6 +225,9 @@ struct rewrite_type<Token, void(Ts...)> {
     using type = typename boost::asio::handler_type<Token, void(Ts...)>::type;
 };
 
+template <class... Ts>
+using rewrite_type_t = typename rewrite_type<Ts...>::type;
+
 template <template <class...> class TaskTpl, class Token, class From, class... To>
 struct transform_task_impl;
 // Requires From to be a std::tuple<Froms...>. Recursively rewrites the head of Froms... and appends
@@ -238,8 +241,8 @@ struct transform_task_impl<TaskTpl, Token, std::tuple<>, To...> {
 
 template <template <class...> class TaskTpl, class Token, class From0, class... From, class... To>
 struct transform_task_impl<TaskTpl, Token, std::tuple<From0, From...>, To...>
-        : transform_task_impl<TaskTpl, Token, std::tuple<From...>,
-                To..., typename rewrite_type<Token, From0>::type> {};
+     : transform_task_impl<TaskTpl, Token, std::tuple<From...>, To..., rewrite_type_t<Token, From0>>
+{};
 
 template <class Task, class Token>
 struct transform_task;
@@ -254,6 +257,9 @@ struct transform_task<TaskTpl<Ts...>, Token> {
     using type = typename transform_task_impl<TaskTpl, Token, std::tuple<Ts...>>::type;
 };
 
+template <class... Ts>
+using transform_task_t = typename transform_task<Ts...>::type;
+
 }  // _
 
 template <class Task, class ArgTuple, size_t... Indices>
@@ -262,7 +268,7 @@ auto async_run_impl(ArgTuple&& t, index_sequence<Indices...>) {
     auto&& token = std::get<token_idx>(std::forward<ArgTuple>(t));
 
     using token_type = std::decay_t<decltype(token)>;
-    using task_type = typename _::transform_task<Task, token_type>::type;
+    using task_type = _::transform_task_t<Task, token_type>;
     using handler_type = typename task_type::handler_type;
 
     auto handler = handler_type{std::forward<decltype(token)>(token)};
