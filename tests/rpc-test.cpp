@@ -1,14 +1,17 @@
 #include "./rpc-test-server.hpp"
 #include "./rpc-test-client.hpp"
 
-#include <util/asio/operation.hpp>
-#include <util/log.hpp>
 #include <util/overload.hpp>
 #include <util/programpath.hpp>
 
 //#include <util/doctest.h>
 
+#include <composed/op_logger.hpp>
+#include <composed/timed.hpp>
+#include <composed/signalled.hpp>
+
 #include <beast/websocket.hpp>
+#include <beast/core/handler_alloc.hpp>
 #include <boost/asio.hpp>
 
 #include <boost/program_options/parsers.hpp>
@@ -17,6 +20,284 @@
 #include <memory>
 
 #include <boost/asio/yield.hpp>
+
+// =======================================================================================
+// Server
+
+template <class Handler = void()>
+struct server_op {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    TestServer server;
+    boost::asio::ip::tcp::acceptor acceptor;
+    beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
+    boost::asio::ip::tcp::endpoint serverEndpoint;
+    boost::asio::ip::tcp::endpoint clientEndpoint;
+    beast::websocket::opcode opcode;
+    beast::streambuf buf;
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::asio::coroutine coro;
+    boost::system::error_code ec;
+
+    server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
+            boost::asio::ip::tcp::endpoint ep)
+        : acceptor(stream.get_io_service(), ep)
+        , ws(stream)
+        , serverEndpoint(ep)
+        , lg(composed::get_associated_logger(h))
+    {}
+
+    void operator()(composed::op<server_op>&);
+};
+
+template <class Handler>
+void server_op<Handler>::operator()(composed::op<server_op>& op) {
+    reenter (coro) {
+        yield acceptor.async_accept(ws.next_layer(), clientEndpoint, op(ec));
+        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
+
+        BOOST_LOG(lg) << "accepted TCP connection from " << clientEndpoint;
+
+        yield ws.async_accept(op(ec));
+        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
+
+        BOOST_LOG(lg) << "accepted WebSocket connection from " << clientEndpoint;
+
+        ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
+
+        do {
+            while (buf.size()) {
+                BOOST_LOG(lg) << buf.size() << " bytes in buffer";
+                auto clientToServer = rpc_test_ClientToServer{};
+                auto istream = nanopb::istream_from_dynamic_buffer(buf);
+                if (!nanopb::decode(istream, clientToServer)) {
+                    BOOST_LOG(lg) << "decoding error";
+                }
+                else {
+                    nanopb::visit(server, clientToServer.arg);
+                }
+            }
+            BOOST_LOG(lg) << "reading ...";
+            yield ws.async_read(opcode, buf, op(ec));
+        } while (!ec);
+
+        BOOST_LOG(lg) << "read error: " << ec.message();
+
+        // To close the connection, we're supposed to call (async_)close, then read until we get
+        // an error.
+        BOOST_LOG(lg) << "closing connection";
+        yield ws.async_close({"Hodor indeed!"}, op(ec));
+        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
+
+        do {
+            BOOST_LOG(lg) << "reading ...";
+            buf.consume(buf.size());
+            yield ws.async_read(opcode, buf, op(ec));
+        } while (!ec);
+
+        if (ec == beast::websocket::error::closed) {
+            BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
+                    << ws.reason().code << '/' << ws.reason().reason.c_str();
+        }
+        else {
+            BOOST_LOG(lg) << "read error: " << ec.message();
+        }
+
+        op.complete();
+    }
+}
+
+// =======================================================================================
+// Client
+
+template <class Handler = void()>
+struct client_op {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    TestClient client;
+    beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
+    boost::asio::ip::tcp::endpoint serverEndpoint;
+    beast::websocket::opcode opcode;
+    beast::streambuf buf;
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::asio::coroutine coro;
+    boost::system::error_code ec;
+
+    client_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
+            boost::asio::ip::tcp::endpoint ep)
+        : ws(stream)
+        , serverEndpoint(ep)
+        , lg(composed::get_associated_logger(h))
+    {}
+
+    void operator()(composed::op<client_op>&);
+};
+
+template <class Handler>
+void client_op<Handler>::operator()(composed::op<client_op>& op) {
+    reenter (coro) {
+        yield ws.next_layer().async_connect(serverEndpoint, op(ec));
+        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
+
+        BOOST_LOG(lg) << "established TCP connection to " << serverEndpoint;
+
+        yield ws.async_handshake("hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
+        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
+
+        BOOST_LOG(lg) << "established WebSocket connection to " << serverEndpoint;
+
+        ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
+
+        yield {
+            auto clientToServer = rpc_test_ClientToServer{};
+            clientToServer.arg.quux.value = 666;
+            nanopb::assign(clientToServer.arg, clientToServer.arg.quux);
+            auto ostream = nanopb::ostream_from_dynamic_buffer(buf);
+            if (!nanopb::encode(ostream, clientToServer)) {
+                BOOST_LOG(lg) << "encoding failure";
+                buf.consume(buf.size());
+            }
+            BOOST_LOG(lg) << "Encoded " << ostream.bytes_written;
+            ws.async_write(buf.data(), op(ec));
+        }
+        BOOST_LOG(lg) << "wrote " << buf.size() << " bytes";
+        buf.consume(buf.size());
+
+        // To close the connection, we're supposed to call (async_)close, then read until we get
+        // an error.
+
+        BOOST_LOG(lg) << "closing connection";
+        yield ws.async_close({"Hodor!"}, op(ec));
+        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
+
+        do {
+            BOOST_LOG(lg) << "reading ...";
+            buf.consume(buf.size());
+            yield ws.async_read(opcode, buf, op(ec));
+        } while (!ec);
+
+        if (ec == beast::websocket::error::closed) {
+            BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
+                    << ws.reason().code << '/' << ws.reason().reason.c_str();
+        }
+        else {
+            BOOST_LOG(lg) << "read error: " << ec.message();
+        }
+
+        op.complete();
+    }
+}
+
+
+
+// =======================================================================================
+// Main
+
+struct MainHandler {
+    using logger_type = composed::logger;
+    logger_type lg;
+    logger_type get_logger() const { return lg; }
+
+    explicit MainHandler(util::log::Logger& l): lg(&l) {}
+
+    size_t allocations = 0;
+    size_t deallocations = 0;
+
+    void operator()() {
+        BOOST_LOG(lg) << "main task completed, " << allocations << '/' << deallocations
+                << " allocations/deallocations";
+    }
+
+    friend void* asio_handler_allocate(size_t size, MainHandler* self) {
+        ++self->allocations;
+
+        // Forward to the default implementation of asio_handler_allocate.
+        int dummy;
+        return beast_asio_helpers::allocate(size, dummy);
+    }
+
+    friend void asio_handler_deallocate(void* pointer, size_t size, MainHandler* self) {
+        ++self->deallocations;
+
+        // Forward to the default implementation of asio_handler_deallocate.
+        int dummy;
+        beast_asio_helpers::deallocate(pointer, size, dummy);
+    }
+
+    template <class Function>
+    friend void asio_handler_invoke(Function&& function, MainHandler* self) {
+        // Forward to the default implementation of asio_handler_invoke.
+        int dummy;
+        beast_asio_helpers::invoke(std::forward<Function>(function), dummy);
+    }
+
+    friend bool asio_handler_is_continuation(MainHandler* self) {
+        return true;
+    }
+};
+
+
+
+template <class Handler = void()>
+struct main_op {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    util::log::Logger serverLg;
+    util::log::Logger clientLg;
+
+    boost::asio::signal_set& trap;
+    boost::asio::ip::tcp::endpoint serverEndpoint;
+
+    beast::websocket::stream<boost::asio::ip::tcp::socket> serverStream;
+    beast::websocket::stream<boost::asio::ip::tcp::socket> clientStream;
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::asio::coroutine coro;
+    boost::system::error_code ec;
+    int sigNo;
+
+    main_op(handler_type& h, boost::asio::signal_set& ss, boost::asio::ip::tcp::endpoint ep)
+        : trap(ss)
+        , serverEndpoint(ep)
+        , serverStream(ss.get_io_service())
+        , clientStream(ss.get_io_service())
+        , lg(composed::get_associated_logger(h))
+    {
+        serverLg.add_attribute("Role", boost::log::attributes::constant<std::string>("server"));
+        clientLg.add_attribute("Role", boost::log::attributes::constant<std::string>("client"));
+    }
+
+    void operator()(composed::op<main_op>&);
+};
+
+template <class Handler>
+void main_op<Handler>::operator()(composed::op<main_op>& op) {
+    reenter (coro) {
+        composed::async_run<server_op<>>(serverStream, serverEndpoint, MainHandler{serverLg});
+        composed::async_run<client_op<>>(clientStream, serverEndpoint, MainHandler{clientLg});
+
+        yield trap.async_wait(op(ec, sigNo));
+        if (!ec) {
+            BOOST_LOG(lg) << "Trap caught signal " << sigNo;
+        }
+        else {
+            BOOST_LOG(lg) << "Trap error: " << ec.message();
+        }
+
+        serverStream.next_layer().close();
+        clientStream.next_layer().close();
+
+        op.complete();
+    }
+};
+
+
+
 
 namespace po = boost::program_options;
 
@@ -56,189 +337,13 @@ int main (int argc, char** argv) {
 
     util::log::Logger lg;
     boost::asio::io_service context;
-
     const auto serverEndpoint = boost::asio::ip::tcp::endpoint{
             boost::asio::ip::address::from_string(serverHost), serverPort};
+    boost::asio::signal_set trap{context, SIGINT, SIGTERM};
 
-    auto serverTask =
-    [ server = TestServer{}
-    , acceptor = boost::asio::ip::tcp::acceptor{context, serverEndpoint}
-    , ws = beast::websocket::stream<boost::asio::ip::tcp::socket>{context}
-    , terminator = std::make_unique<boost::asio::signal_set>(context, SIGINT, SIGTERM)
-    , clientEndpoint = boost::asio::ip::tcp::endpoint{}
-    , opcode = beast::websocket::opcode{}
-    , buf = beast::streambuf{}
-    ](auto&& op, boost::system::error_code ec = {}, int sigNo = 0) mutable {
-        reenter (op) {
-            fork op.runChild();
-            if (op.is_child()) {
-                yield terminator->async_wait(std::move(op));
-                if (!ec) {
-                    BOOST_LOG(op.log()) << "Closing after signal " << sigNo;
-                    acceptor.close(ec);
-                    BOOST_LOG(op.log()) << "acceptor closed: " << ec.message();
-                    ws.next_layer().close(ec);
-                    // TODO: more correct way of closing?
-                    BOOST_LOG(op.log()) << "WebSocket closed: " << ec.message();
-                }
-                return;
-            }
-
-            yield acceptor.async_accept(ws.next_layer(), clientEndpoint, std::move(op));
-            if (ec) { BOOST_LOG(op.log()) << ec.message(); op.complete(ec); return; }
-
-            BOOST_LOG(op.log()) << "accepted TCP connection from " << clientEndpoint;
-
-            yield ws.async_accept(std::move(op));
-            if (ec) { BOOST_LOG(op.log()) << ec.message(); op.complete(ec); return; }
-
-            BOOST_LOG(op.log()) << "accepted WebSocket connection from " << clientEndpoint;
-
-            ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
-
-            do {
-                while (buf.size()) {
-                    BOOST_LOG(op.log()) << buf.size() << " bytes in buffer";
-                    auto clientToServer = rpc_test_ClientToServer{};
-                    auto istream = nanopb::istream_from_dynamic_buffer(buf);
-                    if (!nanopb::decode(istream, clientToServer)) {
-                        BOOST_LOG(op.log()) << "decoding error";
-                    }
-                    else {
-                        nanopb::visit(server, clientToServer.arg);
-                    }
-                }
-                BOOST_LOG(op.log()) << "reading ...";
-                yield ws.async_read(opcode, buf, std::move(op));
-            } while (!ec);
-
-            BOOST_LOG(op.log()) << "read error: " << ec.message();
-
-            // To close the connection, we're supposed to call (async_)close, then read until we get
-            // an error.
-            BOOST_LOG(op.log()) << "closing connection";
-            yield ws.async_close({"Hodor indeed!"}, std::move(op));
-            if (ec) { BOOST_LOG(op.log()) << ec.message(); op.complete(ec); return; }
-
-            do {
-                BOOST_LOG(op.log()) << "reading ...";
-                buf.consume(buf.size());
-                yield ws.async_read(opcode, buf, std::move(op));
-            } while (!ec);
-
-            if (ec == beast::websocket::error::closed) {
-                BOOST_LOG(op.log()) << "WebSocket closed, remote gave code/reason: "
-                        << ws.reason().code << '/' << ws.reason().reason.c_str();
-            }
-            else {
-                BOOST_LOG(op.log()) << "read error: " << ec.message();
-            }
-
-            terminator->cancel();
-            op.complete(ec);
-        }
-    };
-
-    auto clientTask =
-    [ client = TestClient{}
-    , serverEndpoint
-    , ws = beast::websocket::stream<boost::asio::ip::tcp::socket>(context)
-    , terminator = std::make_unique<boost::asio::signal_set>(context, SIGINT, SIGTERM)
-    , opcode = beast::websocket::opcode{}
-    , buf = beast::streambuf{}
-    ](auto&& op, boost::system::error_code ec = {}, int sigNo = 0) mutable {
-        reenter (op) {
-            fork op.runChild();
-            if (op.is_child()) {
-                yield terminator->async_wait(std::move(op));
-                if (!ec) {
-                    BOOST_LOG(op.log()) << "Closing after signal " << sigNo;
-                    ws.next_layer().close(ec);
-                    // TODO: more correct way of closing?
-                    BOOST_LOG(op.log()) << "WebSocket closed: " << ec.message();
-                }
-                return;
-            }
-
-            yield ws.next_layer().async_connect(serverEndpoint, std::move(op));
-            if (ec) { BOOST_LOG(op.log()) << ec.message(); op.complete(ec); return; }
-
-            BOOST_LOG(op.log()) << "established TCP connection to " << serverEndpoint;
-
-            yield ws.async_handshake("hodorhodorhodor.com", "/cgi-bin/hax", std::move(op));
-            if (ec) { BOOST_LOG(op.log()) << ec.message(); op.complete(ec); return; }
-
-            BOOST_LOG(op.log()) << "established WebSocket connection to " << serverEndpoint;
-
-            ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
-
-            yield {
-                auto clientToServer = rpc_test_ClientToServer{};
-                clientToServer.arg.quux.value = 666;
-                nanopb::assign(clientToServer.arg, clientToServer.arg.quux);
-                auto ostream = nanopb::ostream_from_dynamic_buffer(buf);
-                if (!nanopb::encode(ostream, clientToServer)) {
-                    BOOST_LOG(op.log()) << "encoding failure";
-                    buf.consume(buf.size());
-                }
-                BOOST_LOG(op.log()) << "Encoded " << ostream.bytes_written;
-                ws.async_write(buf.data(), std::move(op));
-            }
-            BOOST_LOG(op.log()) << "wrote " << buf.size() << " bytes";
-            buf.consume(buf.size());
-
-            // To close the connection, we're supposed to call (async_)close, then read until we get
-            // an error.
-
-            BOOST_LOG(op.log()) << "closing connection";
-            yield ws.async_close({"Hodor!"}, std::move(op));
-            if (ec) { BOOST_LOG(op.log()) << ec.message(); op.complete(ec); return; }
-
-            do {
-                BOOST_LOG(op.log()) << "reading ...";
-                buf.consume(buf.size());
-                yield ws.async_read(opcode, buf, std::move(op));
-            } while (!ec);
-
-            if (ec == beast::websocket::error::closed) {
-                BOOST_LOG(op.log()) << "WebSocket closed, remote gave code/reason: "
-                        << ws.reason().code << '/' << ws.reason().reason.c_str();
-            }
-            else {
-                BOOST_LOG(op.log()) << "read error: " << ec.message();
-            }
-
-            terminator->cancel();
-            op.complete(ec);
-        }
-    };
-
-    auto dummy = [](boost::system::error_code) {};
-
-    auto serverHandler = util::asio::addAssociatedLogger(dummy, util::log::Logger{});
-    serverHandler.log().add_attribute(
-            "Role", boost::log::attributes::constant<std::string>("server"));
-
-    auto clientHandler = util::asio::addAssociatedLogger(dummy, util::log::Logger{});
-    clientHandler.log().add_attribute(
-            "Role", boost::log::attributes::constant<std::string>("client"));
-
-    util::asio::asyncDispatch(
-        context,
-        std::make_tuple(make_error_code(boost::asio::error::operation_aborted)),
-        std::move(serverTask),
-        std::move(serverHandler)
-    );
-
-    util::asio::asyncDispatch(
-        context,
-        std::make_tuple(make_error_code(boost::asio::error::operation_aborted)),
-        std::move(clientTask),
-        std::move(clientHandler)
-    );
+    composed::async_run<main_op<>>(trap, serverEndpoint, MainHandler{lg});
 
     auto nHandlers = context.run();
-
     BOOST_LOG(lg) << "ran " << nHandlers << " handlers, exiting";
 }
 
