@@ -217,8 +217,8 @@ TEST_CASE("can set timeouts yet another way") {
     boost::asio::steady_timer timer{context};
     boost::asio::steady_timer timeout_timer{context, 150ms};
 
-    auto j = composed::make_timeout_joiner<boost::system::error_code, int>(
-            timeout_timer, timer, test_handler{"another-timeout"});
+    auto j = composed::make_timeout_joiner(
+            timer, timeout_timer, test_handler{"another-timeout"});
     timeout_timer.async_wait(composed::branch(j, composed::timeout_tag{}));
     async_test(timer, composed::branch(j));
     context.run();

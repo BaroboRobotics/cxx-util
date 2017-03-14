@@ -19,16 +19,20 @@
 
 namespace composed {
 
-template <class Interruptor, class Cancellable>
-struct interruption_data {
-    Interruptor& interruptor;
-    Cancellable& cancellable;
+template <class TrunkObject, class BranchObject>
+struct joint {
+    boost::asio::steady_timer timer;
+
+    TrunkObject& trunk_object;
+    BranchObject& branch_object;
+
     boost::system::error_code ec{};
 
     template <class Handler>
-    interruption_data(Handler&, Interruptor& i, Cancellable& c)
-        : interruptor(i)
-        , cancellable(c)
+    joint(Handler&, TrunkObject& t, BranchObject& b)
+        : timer(t.get_io_service())
+        , trunk_object(t)
+        , branch_object(b)
     {}
 };
 
@@ -83,13 +87,13 @@ auto bind_interruption_handler(Handler&& h, Args&&... args) {
 
 struct timeout_tag {};
 
-template <class Cancellable, class Handler>
+template <class TrunkObject, class Handler>
 struct timeout_joiner {
-    beast::handler_ptr<interruption_data<boost::asio::steady_timer, Cancellable>, Handler> d;
+    beast::handler_ptr<joint<TrunkObject, boost::asio::steady_timer>, Handler> d;
 
     template <class DeducedHandler>
-    timeout_joiner(boost::asio::steady_timer& t, Cancellable& c, DeducedHandler&& h)
-        : d(std::forward<DeducedHandler>(h), t, c)
+    timeout_joiner(TrunkObject& t, boost::asio::steady_timer& b, DeducedHandler&& h)
+        : d(std::forward<DeducedHandler>(h), t, b)
     {}
 
     void operator()(timeout_tag, const boost::system::error_code& ec) {
@@ -97,13 +101,13 @@ struct timeout_joiner {
             auto lg = get_associated_logger(d.handler());
             BOOST_LOG(lg) << "Timed out";
             d->ec = boost::asio::error::timed_out;
-            d->cancellable.cancel();
+            d->trunk_object.cancel();
         }
     }
 
     template <class... Args>
     void operator()(boost::system::error_code ec, Args&&... args) {
-        auto& timer = d->interruptor;
+        auto& timer = d->branch_object;
         timer.expires_at(boost::asio::steady_timer::time_point::min());
         if (d->ec && ec == boost::asio::error::operation_aborted) {
             // d->ec overrides ec iff we were cancelled
@@ -114,9 +118,9 @@ struct timeout_joiner {
     }
 };
 
-template <class Cancellable, class Handler>
-auto make_timeout_joiner(boost::asio::steady_timer& timer, Cancellable& cancellable, Handler&& h) {
-    return timeout_joiner<Cancellable, Handler>{timer, cancellable, std::forward<Handler>(h)};
+template <class TrunkObject, class Handler>
+auto make_timeout_joiner(TrunkObject& trunk_object, boost::asio::steady_timer& timer, Handler&& h) {
+    return timeout_joiner<TrunkObject, Handler>{trunk_object, timer, std::forward<Handler>(h)};
 }
 
 template <class Joiner, class Tag>
