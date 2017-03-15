@@ -38,6 +38,7 @@ struct server_op {
     composed::associated_logger_t<handler_type> lg;
     boost::asio::coroutine coro;
     boost::system::error_code ec;
+    boost::system::error_code ecRead;
 
     server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint ep)
@@ -52,14 +53,9 @@ struct server_op {
 
 template <class Handler>
 void server_op<Handler>::operator()(composed::op<server_op>& op) {
-    reenter (coro) {
+    if (!ec) reenter (coro) {
         yield acceptor.async_accept(ws.next_layer(), clientEndpoint, op(ec));
-        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
-
-        BOOST_LOG(lg) << "accepted TCP connection from " << clientEndpoint;
-
         yield ws.async_accept(op(ec));
-        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
 
         BOOST_LOG(lg) << "accepted WebSocket connection from " << clientEndpoint;
 
@@ -78,31 +74,34 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
                 }
             }
             BOOST_LOG(lg) << "reading ...";
-            yield ws.async_read(opcode, buf, op(ec));
-        } while (!ec);
+            yield ws.async_read(opcode, buf, op(ecRead));
+        } while (!ecRead);
 
-        BOOST_LOG(lg) << "read error: " << ec.message();
+        BOOST_LOG(lg) << "read error: " << ecRead.message();
 
         // To close the connection, we're supposed to call (async_)close, then read until we get
         // an error.
         BOOST_LOG(lg) << "closing connection";
         yield ws.async_close({"Hodor indeed!"}, op(ec));
-        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
 
         do {
             BOOST_LOG(lg) << "reading ...";
             buf.consume(buf.size());
-            yield ws.async_read(opcode, buf, op(ec));
-        } while (!ec);
+            yield ws.async_read(opcode, buf, op(ecRead));
+        } while (!ecRead);
 
-        if (ec == beast::websocket::error::closed) {
+        if (ecRead == beast::websocket::error::closed) {
             BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
                     << ws.reason().code << '/' << ws.reason().reason.c_str();
         }
         else {
-            BOOST_LOG(lg) << "read error: " << ec.message();
+            BOOST_LOG(lg) << "read error: " << ecRead.message();
         }
 
+        op.complete();
+    }
+    else {
+        BOOST_LOG(lg) << "error: " << ec.message();
         op.complete();
     }
 }
@@ -124,6 +123,7 @@ struct client_op {
     composed::associated_logger_t<handler_type> lg;
     boost::asio::coroutine coro;
     boost::system::error_code ec;
+    boost::system::error_code ecRead;
 
     client_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint ep)
@@ -137,14 +137,9 @@ struct client_op {
 
 template <class Handler>
 void client_op<Handler>::operator()(composed::op<client_op>& op) {
-    reenter (coro) {
+    if (!ec) reenter (coro) {
         yield ws.next_layer().async_connect(serverEndpoint, op(ec));
-        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
-
-        BOOST_LOG(lg) << "established TCP connection to " << serverEndpoint;
-
         yield ws.async_handshake("hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
-        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
 
         BOOST_LOG(lg) << "established WebSocket connection to " << serverEndpoint;
 
@@ -170,22 +165,25 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
 
         BOOST_LOG(lg) << "closing connection";
         yield ws.async_close({"Hodor!"}, op(ec));
-        if (ec) { BOOST_LOG(lg) << ec.message(); op.complete(); return; }
 
         do {
             BOOST_LOG(lg) << "reading ...";
             buf.consume(buf.size());
-            yield ws.async_read(opcode, buf, op(ec));
-        } while (!ec);
+            yield ws.async_read(opcode, buf, op(ecRead));
+        } while (!ecRead);
 
-        if (ec == beast::websocket::error::closed) {
+        if (ecRead == beast::websocket::error::closed) {
             BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
                     << ws.reason().code << '/' << ws.reason().reason.c_str();
         }
         else {
-            BOOST_LOG(lg) << "read error: " << ec.message();
+            BOOST_LOG(lg) << "read error: " << ecRead.message();
         }
 
+        op.complete();
+    }
+    else {
+        BOOST_LOG(lg) << "error: " << ec.message();
         op.complete();
     }
 }
