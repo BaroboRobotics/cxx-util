@@ -7,8 +7,6 @@
 //#include <util/doctest.h>
 
 #include <composed/op_logger.hpp>
-#include <composed/timed.hpp>
-#include <composed/signalled.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
