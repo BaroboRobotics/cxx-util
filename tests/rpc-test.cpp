@@ -7,6 +7,7 @@
 //#include <util/doctest.h>
 
 #include <composed/op_logger.hpp>
+#include <composed/phaser.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -26,6 +27,8 @@ template <class Handler = void()>
 struct server_op {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
+    using logger_type = composed::logger;
+    logger_type get_logger() const { return &lg; }
 
     TestServer server;
     boost::asio::ip::tcp::acceptor acceptor;
@@ -35,7 +38,7 @@ struct server_op {
     beast::websocket::opcode opcode;
     beast::streambuf buf;
 
-    composed::associated_logger_t<handler_type> lg;
+    util::log::Logger lg;
     boost::asio::coroutine coro;
     boost::system::error_code ec;
     boost::system::error_code ecRead;
@@ -45,8 +48,9 @@ struct server_op {
         : acceptor(stream.get_io_service(), ep)
         , ws(stream)
         , serverEndpoint(ep)
-        , lg(composed::get_associated_logger(h))
-    {}
+    {
+        lg.add_attribute("Role", boost::log::attributes::constant<std::string>("server"));
+    }
 
     void operator()(composed::op<server_op>&);
 };
@@ -113,6 +117,8 @@ template <class Handler = void()>
 struct client_op {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
+    using logger_type = composed::logger;
+    logger_type get_logger() const { return &lg; }
 
     TestClient client;
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
@@ -120,17 +126,18 @@ struct client_op {
     beast::websocket::opcode opcode;
     beast::streambuf buf;
 
-    composed::associated_logger_t<handler_type> lg;
+    util::log::Logger lg;
     boost::asio::coroutine coro;
     boost::system::error_code ec;
     boost::system::error_code ecRead;
 
-    client_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
+    client_op(handler_type&, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint ep)
         : ws(stream)
         , serverEndpoint(ep)
-        , lg(composed::get_associated_logger(h))
-    {}
+    {
+        lg.add_attribute("Role", boost::log::attributes::constant<std::string>("client"));
+    }
 
     void operator()(composed::op<client_op>&);
 };
@@ -243,11 +250,10 @@ struct main_op {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
-    util::log::Logger serverLg;
-    util::log::Logger clientLg;
-
     boost::asio::signal_set& trap;
     boost::asio::ip::tcp::endpoint serverEndpoint;
+
+    composed::phaser<handler_type> phaser;
 
     beast::websocket::stream<boost::asio::ip::tcp::socket> serverStream;
     beast::websocket::stream<boost::asio::ip::tcp::socket> clientStream;
@@ -260,12 +266,12 @@ struct main_op {
     main_op(handler_type& h, boost::asio::signal_set& ss, boost::asio::ip::tcp::endpoint ep)
         : trap(ss)
         , serverEndpoint(ep)
+        , phaser(ss.get_io_service(), h)
         , serverStream(ss.get_io_service())
         , clientStream(ss.get_io_service())
         , lg(composed::get_associated_logger(h))
     {
-        serverLg.add_attribute("Role", boost::log::attributes::constant<std::string>("server"));
-        clientLg.add_attribute("Role", boost::log::attributes::constant<std::string>("client"));
+        lg.add_attribute("Role", boost::log::attributes::constant<std::string>("main"));
     }
 
     void operator()(composed::op<main_op>&);
@@ -274,10 +280,13 @@ struct main_op {
 template <class Handler>
 void main_op<Handler>::operator()(composed::op<main_op>& op) {
     reenter (coro) {
-        composed::async_run<server_op<>>(serverStream, serverEndpoint, MainHandler{serverLg});
-        composed::async_run<client_op<>>(clientStream, serverEndpoint, MainHandler{clientLg});
+        yield {
+            auto next = op(ec, sigNo);
+            composed::async_run<server_op<>>(serverStream, serverEndpoint, phaser.discard(next));
+            composed::async_run<client_op<>>(clientStream, serverEndpoint, phaser.discard(next));
+            trap.async_wait(next);
+        }
 
-        yield trap.async_wait(op(ec, sigNo));
         if (!ec) {
             BOOST_LOG(lg) << "Trap caught signal " << sigNo;
         }
@@ -287,6 +296,8 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
 
         serverStream.next_layer().close();
         clientStream.next_layer().close();
+
+        yield phaser.async_wait(op(ec));
 
         op.complete();
     }
