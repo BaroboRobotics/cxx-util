@@ -31,10 +31,7 @@ struct server_op {
     logger_type get_logger() const { return &lg; }
 
     TestServer server;
-    boost::asio::ip::tcp::acceptor acceptor;
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
-    boost::asio::ip::tcp::endpoint serverEndpoint;
-    boost::asio::ip::tcp::endpoint clientEndpoint;
     beast::websocket::opcode opcode;
     beast::streambuf buf;
 
@@ -44,12 +41,11 @@ struct server_op {
     boost::system::error_code ecRead;
 
     server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
-            boost::asio::ip::tcp::endpoint ep)
-        : acceptor(stream.get_io_service(), ep)
-        , ws(stream)
-        , serverEndpoint(ep)
+            boost::asio::ip::tcp::endpoint remoteEp)
+        : ws(stream)
     {
-        lg.add_attribute("Role", boost::log::attributes::constant<std::string>("server"));
+        lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
+        lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remoteEp));
     }
 
     void operator()(composed::op<server_op>&);
@@ -58,10 +54,9 @@ struct server_op {
 template <class Handler>
 void server_op<Handler>::operator()(composed::op<server_op>& op) {
     if (!ec) reenter (coro) {
-        yield acceptor.async_accept(ws.next_layer(), clientEndpoint, op(ec));
         yield ws.async_accept(op(ec));
 
-        BOOST_LOG(lg) << "accepted WebSocket connection from " << clientEndpoint;
+        BOOST_LOG(lg) << "accepted WebSocket connection";
 
         ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
 
@@ -136,7 +131,8 @@ struct client_op {
         : ws(stream)
         , serverEndpoint(ep)
     {
-        lg.add_attribute("Role", boost::log::attributes::constant<std::string>("client"));
+        lg.add_attribute("Role", boost::log::attributes::make_constant("client"));
+        lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(serverEndpoint));
     }
 
     void operator()(composed::op<client_op>&);
@@ -148,7 +144,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         yield ws.next_layer().async_connect(serverEndpoint, op(ec));
         yield ws.async_handshake("hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
 
-        BOOST_LOG(lg) << "established WebSocket connection to " << serverEndpoint;
+        BOOST_LOG(lg) << "established WebSocket connection";
 
         ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
 
@@ -202,21 +198,26 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
 
 struct MainHandler {
     using logger_type = composed::logger;
-    logger_type lg;
-    logger_type get_logger() const { return lg; }
+    logger_type get_logger() const { return p->lg; }
 
-    explicit MainHandler(util::log::Logger& l): lg(&l) {}
+    struct Data {
+        logger_type lg;
+        size_t allocations = 0;
+        size_t deallocations = 0;
+        Data(util::log::Logger& l): lg(&l) {}
+    };
+    std::shared_ptr<Data> p;
 
-    size_t allocations = 0;
-    size_t deallocations = 0;
+    explicit MainHandler(util::log::Logger& l): p(std::make_shared<Data>(l)) {}
+
 
     void operator()() {
-        BOOST_LOG(lg) << "main task completed, " << allocations << '/' << deallocations
+        BOOST_LOG(p->lg) << "main task completed, " << p->allocations << '/' << p->deallocations
                 << " allocations/deallocations";
     }
 
     friend void* asio_handler_allocate(size_t size, MainHandler* self) {
-        ++self->allocations;
+        ++self->p->allocations;
 
         // Forward to the default implementation of asio_handler_allocate.
         int dummy;
@@ -224,7 +225,7 @@ struct MainHandler {
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, MainHandler* self) {
-        ++self->deallocations;
+        ++self->p->deallocations;
 
         // Forward to the default implementation of asio_handler_deallocate.
         int dummy;
@@ -245,6 +246,50 @@ struct MainHandler {
 
 
 
+template <class LoopBody, class Handler = void()>
+struct accept_loop_op {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    boost::asio::ip::tcp::acceptor& acceptor;
+
+    boost::asio::ip::tcp::socket stream;
+    boost::asio::ip::tcp::endpoint remoteEp;
+
+    LoopBody loopBody;
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::asio::coroutine coro;
+    boost::system::error_code ec;
+
+    accept_loop_op(handler_type& h, boost::asio::ip::tcp::acceptor& a, LoopBody f)
+        : acceptor(a)
+        , stream(a.get_io_service())
+        , loopBody(std::move(f))
+        , lg(composed::get_associated_logger(h))
+    {
+        lg.add_attribute("Role", boost::log::attributes::make_constant("accept_loop"));
+    }
+
+    void operator()(composed::op<accept_loop_op>&);
+};
+
+template <class LoopBody, class Handler>
+void accept_loop_op<LoopBody, Handler>::operator()(composed::op<accept_loop_op>& op) {
+    reenter (coro) {
+        yield acceptor.async_accept(stream, remoteEp, op(ec));
+        while (!ec) {
+            loopBody(std::move(stream), remoteEp);
+            stream = decltype(stream)(acceptor.get_io_service());
+            yield acceptor.async_accept(stream, remoteEp, op(ec));
+        }
+        BOOST_LOG(lg) << "Accept loop croaking: " << ec.message();
+        op.complete();
+    }
+}
+
+
+
 template <class Handler = void()>
 struct main_op {
     using handler_type = Handler;
@@ -255,8 +300,15 @@ struct main_op {
 
     composed::phaser<handler_type> phaser;
 
-    beast::websocket::stream<boost::asio::ip::tcp::socket> serverStream;
-    beast::websocket::stream<boost::asio::ip::tcp::socket> clientStream;
+    boost::asio::ip::tcp::acceptor acceptor;
+
+    using WsStream = beast::websocket::stream<boost::asio::ip::tcp::socket>;
+
+    std::list<WsStream/*, allocator_type*/> connections;
+    // beast::handler_alloc requires std::allocator_traits usage, but std::list doesn't use
+    // std::allocator_traits until gcc-6: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=55409
+
+    WsStream clientStream;
 
     composed::associated_logger_t<handler_type> lg;
     boost::asio::coroutine coro;
@@ -267,11 +319,12 @@ struct main_op {
         : trap(ss)
         , serverEndpoint(ep)
         , phaser(ss.get_io_service(), h)
-        , serverStream(ss.get_io_service())
+        , acceptor(ss.get_io_service(), ep)
+        , connections(/*allocator_type{h}*/)
         , clientStream(ss.get_io_service())
         , lg(composed::get_associated_logger(h))
     {
-        lg.add_attribute("Role", boost::log::attributes::constant<std::string>("main"));
+        lg.add_attribute("Role", boost::log::attributes::make_constant("main"));
     }
 
     void operator()(composed::op<main_op>&);
@@ -281,10 +334,27 @@ template <class Handler>
 void main_op<Handler>::operator()(composed::op<main_op>& op) {
     reenter (coro) {
         yield {
-            auto next = op(ec, sigNo);
-            composed::async_run<server_op<>>(serverStream, serverEndpoint, phaser.discard(next));
-            composed::async_run<client_op<>>(clientStream, serverEndpoint, phaser.discard(next));
-            trap.async_wait(next);
+            auto runServer =
+                    [this](boost::asio::ip::tcp::socket&& s, boost::asio::ip::tcp::endpoint remoteEp) {
+                        connections.emplace_front(std::move(s));
+                        auto cleanup = [this, x = connections.begin()] { connections.erase(x); };
+                        composed::async_run<server_op<>>(
+                                connections.front(),
+                                remoteEp,
+                                phaser.completion(cleanup));
+                    };
+
+            composed::async_run<accept_loop_op<decltype(runServer)>>(
+                    acceptor,
+                    runServer,
+                    phaser.completion([this] { trap.cancel(); }));
+            // Run an accept loop, handing all newly connected sockets to `runServer`. If the accept
+            // loop ever exits, cancel our trap to let the daemon exit.
+
+            composed::async_run<client_op<>>(clientStream, serverEndpoint, phaser.completion());
+            // Test things out with a client run.
+
+            trap.async_wait(op(ec, sigNo));
         }
 
         if (!ec) {
@@ -294,7 +364,11 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
             BOOST_LOG(lg) << "Trap error: " << ec.message();
         }
 
-        serverStream.next_layer().close();
+        acceptor.close();
+        for (auto& con: connections) {
+            con.next_layer().close();
+        }
+
         clientStream.next_layer().close();
 
         yield phaser.async_wait(op(ec));
@@ -302,7 +376,6 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
         op.complete();
     }
 };
-
 
 
 
