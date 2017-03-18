@@ -24,7 +24,7 @@
 // Server
 
 template <class Handler = void()>
-struct server_op {
+struct server_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using logger_type = composed::logger;
@@ -36,7 +36,6 @@ struct server_op {
     beast::streambuf buf;
 
     util::log::Logger lg;
-    boost::asio::coroutine coro;
     boost::system::error_code ec;
     boost::system::error_code ecRead;
 
@@ -53,7 +52,7 @@ struct server_op {
 
 template <class Handler>
 void server_op<Handler>::operator()(composed::op<server_op>& op) {
-    if (!ec) reenter (coro) {
+    if (!ec) reenter(this) {
         yield ws.async_accept(op(ec));
 
         BOOST_LOG(lg) << "accepted WebSocket connection";
@@ -109,7 +108,7 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
 // Client
 
 template <class Handler = void()>
-struct client_op {
+struct client_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using logger_type = composed::logger;
@@ -122,7 +121,6 @@ struct client_op {
     beast::streambuf buf;
 
     util::log::Logger lg;
-    boost::asio::coroutine coro;
     boost::system::error_code ec;
     boost::system::error_code ecRead;
 
@@ -140,7 +138,7 @@ struct client_op {
 
 template <class Handler>
 void client_op<Handler>::operator()(composed::op<client_op>& op) {
-    if (!ec) reenter (coro) {
+    if (!ec) reenter(this) {
         yield ws.next_layer().async_connect(serverEndpoint, op(ec));
         yield ws.async_handshake("hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
 
