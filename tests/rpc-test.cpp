@@ -8,6 +8,7 @@
 
 #include <composed/op_logger.hpp>
 #include <composed/phaser.hpp>
+#include <composed/async_accept_loop.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -239,56 +240,6 @@ struct MainHandler {
     }
 };
 
-template <class LoopBody, class Token>
-auto async_accept_loop(boost::asio::ip::tcp::acceptor& a, LoopBody&& f, Token&& token);
-// Continuously accept new connections, passing them to the user by `f(std::move(s), ep)`, where:
-//   - `s` is a newly bound socket
-//   - `ep` is the remote endpoint connected to that socket
-//
-// If the accept syscall results in an error, the loop terminates and propagates the error.
-//
-// Note that there is no way to break the loop from inside the loop body, `f`.
-
-template <class LoopBody, class Handler = void(boost::system::error_code)>
-struct accept_loop_op: boost::asio::coroutine {
-    using handler_type = Handler;
-
-    accept_loop_op(handler_type&, boost::asio::ip::tcp::acceptor& a, LoopBody f)
-        : acceptor(a)
-        , stream(a.get_io_service())
-        , loopBody(std::move(f))
-    {}
-
-    void operator()(composed::op<accept_loop_op>&);
-
-    boost::asio::ip::tcp::acceptor& acceptor;
-
-    boost::asio::ip::tcp::socket stream;
-    boost::asio::ip::tcp::endpoint remoteEp;
-
-    LoopBody loopBody;
-
-    boost::system::error_code ec;
-};
-
-template <class LoopBody, class Handler>
-void accept_loop_op<LoopBody, Handler>::operator()(composed::op<accept_loop_op>& op) {
-    reenter(this) {
-        yield acceptor.async_accept(stream, remoteEp, op(ec));
-        while (!ec) {
-            loopBody(std::move(stream), remoteEp);
-            stream = decltype(stream)(acceptor.get_io_service());
-            yield acceptor.async_accept(stream, remoteEp, op(ec));
-        }
-        op.complete(ec);
-    }
-}
-
-template <class LoopBody, class Token>
-auto async_accept_loop(boost::asio::ip::tcp::acceptor& a, LoopBody&& f, Token&& token) {
-    return composed::async_run<accept_loop_op<std::decay_t<LoopBody>>>(
-            a, std::forward<LoopBody>(f), std::forward<Token>(token));
-}
 
 template <class Handler = void()>
 struct main_op: boost::asio::coroutine {
@@ -346,7 +297,7 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
                 trap.cancel();
             };
 
-            async_accept_loop(acceptor, runServer, phaser.completion(cleanup));
+            composed::async_accept_loop(acceptor, runServer, phaser.completion(cleanup));
             // Run an accept loop, handing all newly connected sockets to `runServer`. If the accept
             // loop ever exits, cancel our trap to let the daemon exit.
 
