@@ -3,7 +3,11 @@
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-// Specialize associated_logger for op_continuation.
+// An Asio-compatible phaser implementation.
+
+// TODO:
+// - Unit test :(
+// - Factor out the handler-context-adoption feature of phaser_handler into a separate class.
 
 #ifndef COMPOSED_PHASER_HPP
 #define COMPOSED_PHASER_HPP
@@ -19,15 +23,21 @@ namespace composed {
 template <class TrunkHandler>
 struct phaser;
 
-template <class TrunkHandler, class BranchHandler>
+template <class TrunkHandler, class ResultHandler, class BranchHandler>
 struct phaser_handler {
     phaser<TrunkHandler>& parent;
+    ResultHandler result_handler;
     BranchHandler handler;
 
     template <class... Args>
-    void operator()(Args&&...) {
-        // Ignore the result of the operation we're handling.
-        beast_asio_helpers::invoke([&parent = parent] { parent.decrement(); }, parent.handler);
+    void operator()(Args&&... args) {
+        beast_asio_helpers::invoke(
+            [ &parent = parent
+            , result_handler = result_handler
+            , args = std::tuple<Args...>(std::forward<Args>(args)...)] {
+                apply(result_handler, std::move(args));
+                parent.decrement();
+            }, parent.handler);
     }
 
     friend void* asio_handler_allocate(size_t size, phaser_handler* self) {
@@ -53,12 +63,20 @@ struct phaser {
 public:
     phaser(boost::asio::io_service& context, TrunkHandler h);
 
-    template <class BranchHandler>
-    auto discard(BranchHandler&& other);
+    struct discard_results {
+        template <class... Args>
+        void operator()(Args&&...) const {}
+    };
+
+    auto completion() { return completion(discard_results{}); }
+    template <class ResultHandler>
+    auto completion(ResultHandler&& rh) { return completion(std::forward<ResultHandler>(rh), handler); }
+    template <class ResultHandler, class BranchHandler>
+    auto completion(ResultHandler&& rh, BranchHandler&& other);
     // Increment this phaser and return a handler which:
     //   - forwards all of its hooks (asio_handler_invoke, etc.) to `other`
-    //   - discards the operation's result
-    //   - decrements this phaser
+    //   - forwards the operation's results to `rh` on TrunkHandler's execution context
+    //   - decrements this phaser on TrunkHandler's execution context
     //
     // IMPORTANT: The returned handler contains a reference to this phaser. Therefore, it is NOT
     // safe to move the phaser while there are any outstanding handlers.
@@ -71,7 +89,7 @@ public:
     // the phaser's value is already zero, this function merely acts like a `post()`.
 
 private:
-    template <class T, class U>
+    template <class T, class U, class V>
     friend class phaser_handler;
 
     void decrement();
@@ -89,11 +107,14 @@ phaser<TrunkHandler>::phaser(boost::asio::io_service& context, TrunkHandler h)
 {}
 
 template <class TrunkHandler>
-template <class BranchHandler>
-auto phaser<TrunkHandler>::discard(BranchHandler&& other) {
+template <class ResultHandler, class BranchHandler>
+auto phaser<TrunkHandler>::completion(ResultHandler&& rh, BranchHandler&& other) {
     increment();
+    using ResultHandlerD = std::decay_t<ResultHandler>;
     using BranchHandlerD = std::decay_t<BranchHandler>;
-    return phaser_handler<TrunkHandler, BranchHandlerD>{*this, std::forward<BranchHandler>(other)};
+    return phaser_handler<TrunkHandler, ResultHandlerD, BranchHandlerD>{
+        *this, std::forward<ResultHandler>(rh), std::forward<BranchHandler>(other)
+    };
 }
 
 template <class TrunkHandler>
