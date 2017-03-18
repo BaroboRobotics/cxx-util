@@ -9,6 +9,8 @@
 
 #include <util/logsafely.hpp>
 
+#include <boost/asio/ip/tcp.hpp>
+
 #include <boost/log/common.hpp>
 #include <boost/log/expressions.hpp>
 #include <boost/log/attributes/clock.hpp>
@@ -78,6 +80,9 @@ boost::log::formatter defaultFormatter () {
         ]
         << expr::if_(expr::has_attr<std::string>("RemoteEndpoint"))[
         expr::stream << " [" << expr::attr<std::string>("RemoteEndpoint") << "]"
+        ]
+        << expr::if_(expr::has_attr<boost::asio::ip::tcp::endpoint>("TcpRemoteEndpoint"))[
+        expr::stream << " [remote=" << expr::attr<boost::asio::ip::tcp::endpoint>("TcpRemoteEndpoint") << "]"
         ]
         << expr::if_(expr::has_attr<std::string>("SerialId"))[
             expr::stream << " [" << expr::attr<std::string>("SerialId") << "]"
