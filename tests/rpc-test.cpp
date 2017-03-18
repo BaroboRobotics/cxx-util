@@ -53,7 +53,7 @@ struct server_op: boost::asio::coroutine {
 template <class Handler>
 void server_op<Handler>::operator()(composed::op<server_op>& op) {
     if (!ec) reenter(this) {
-        yield ws.async_accept(op(ec));
+        yield return ws.async_accept(op(ec));
 
         BOOST_LOG(lg) << "accepted WebSocket connection";
 
@@ -72,7 +72,7 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
                 }
             }
             BOOST_LOG(lg) << "reading ...";
-            yield ws.async_read(opcode, buf, op(ecRead));
+            yield return ws.async_read(opcode, buf, op(ecRead));
         } while (!ecRead);
 
         BOOST_LOG(lg) << "read error: " << ecRead.message();
@@ -80,12 +80,12 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         // To close the connection, we're supposed to call (async_)close, then read until we get
         // an error.
         BOOST_LOG(lg) << "closing connection";
-        yield ws.async_close({"Hodor indeed!"}, op(ec));
+        yield return ws.async_close({"Hodor indeed!"}, op(ec));
 
         do {
             BOOST_LOG(lg) << "reading ...";
             buf.consume(buf.size());
-            yield ws.async_read(opcode, buf, op(ecRead));
+            yield return ws.async_read(opcode, buf, op(ecRead));
         } while (!ecRead);
 
         if (ecRead == beast::websocket::error::closed) {
@@ -95,13 +95,11 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         else {
             BOOST_LOG(lg) << "read error: " << ecRead.message();
         }
-
-        op.complete();
     }
     else {
         BOOST_LOG(lg) << "error: " << ec.message();
-        op.complete();
     }
+    op.complete();
 }
 
 // =======================================================================================
@@ -139,8 +137,8 @@ struct client_op: boost::asio::coroutine {
 template <class Handler>
 void client_op<Handler>::operator()(composed::op<client_op>& op) {
     if (!ec) reenter(this) {
-        yield ws.next_layer().async_connect(serverEndpoint, op(ec));
-        yield ws.async_handshake("hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
+        yield return ws.next_layer().async_connect(serverEndpoint, op(ec));
+        yield return ws.async_handshake("hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
 
         BOOST_LOG(lg) << "established WebSocket connection";
 
@@ -156,7 +154,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
                 buf.consume(buf.size());
             }
             BOOST_LOG(lg) << "Encoded " << ostream.bytes_written;
-            ws.async_write(buf.data(), op(ec));
+            return ws.async_write(buf.data(), op(ec));
         }
         BOOST_LOG(lg) << "wrote " << buf.size() << " bytes";
         buf.consume(buf.size());
@@ -165,12 +163,12 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         // an error.
 
         BOOST_LOG(lg) << "closing connection";
-        yield ws.async_close({"Hodor!"}, op(ec));
+        yield return ws.async_close({"Hodor!"}, op(ec));
 
         do {
             BOOST_LOG(lg) << "reading ...";
             buf.consume(buf.size());
-            yield ws.async_read(opcode, buf, op(ecRead));
+            yield return ws.async_read(opcode, buf, op(ecRead));
         } while (!ecRead);
 
         if (ecRead == beast::websocket::error::closed) {
@@ -181,12 +179,11 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
             BOOST_LOG(lg) << "read error: " << ecRead.message();
         }
 
-        op.complete();
     }
     else {
         BOOST_LOG(lg) << "error: " << ec.message();
-        op.complete();
     }
+    op.complete();
 }
 
 
@@ -356,7 +353,7 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
             composed::async_run<client_op<>>(clientStream, serverEndpoint, phaser.completion());
             // Test things out with a client run.
 
-            trap.async_wait(op(ec, sigNo));
+            return trap.async_wait(op(ec, sigNo));
         }
 
         if (!ec) {
@@ -373,10 +370,10 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
 
         clientStream.next_layer().close();
 
-        yield phaser.async_wait(op(ec));
+        yield return phaser.async_wait(op(ec));
 
-        op.complete();
     }
+    op.complete();
 };
 
 
