@@ -1,128 +1,227 @@
-// Copyright (c) 2014-2016 Barobo, Inc.
-//
-// Distributed under the Boost Software License, Version 1.0. (See accompanying
-// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+#include <util/doctest.h>
+#include <util/log.hpp>
 
-#include <util/asio/operation.hpp>
-#include <util/asio/iothread.hpp>
-#include <util/asio/asynccompletion.hpp>
+#include <composed/op_logger.hpp>
+#include <composed/timed.hpp>
+#include <composed/signalled.hpp>
+#include <composed/object.hpp>
+
+#include <beast/core/async_completion.hpp>
+#include <beast/core/handler_alloc.hpp>
 
 #include <boost/asio.hpp>
-#include <boost/asio/yield.hpp> // define reenter, yield, and fork
+#include <boost/asio/steady_timer.hpp>
 
-#include <array>
-#include <future>
-#include <iostream>
-#include <string>
-#include <utility>
-#include <vector>
+#include <boost/scope_exit.hpp>
 
-namespace asio = boost::asio;
-using boost::system::error_code;
-using boost::system::system_error;
-using std::forward;
-using std::move;
-using std::string;
-using std::cout;
-using std::cerr;
+#include <chrono>
+#include <tuple>
 
-static const auto kEchoes = int(100);
+#include <csignal>
 
-template <class Stream>
-struct EchoOp {
-    EchoOp (Stream& s, int n)
-        : stream(s)
-        , echoes(n)
-    {}
+#include <boost/asio/yield.hpp>
 
-    Stream& stream;
-    int echoes;
-    std::array<std::uint8_t, 1024> buf;
-    error_code rc;
+struct test_handler {
+    // A final handler to aid in checking that all the handler hooks are being exercised correctly.
 
-    std::tuple<error_code> result () {
-        return std::make_tuple(rc);
+    const bool cont;
+
+    std::shared_ptr<util::log::Logger> lgp;
+    // Wrap the logger in a shared_ptr to make sure test_handler is move-constructible.
+
+    using logger_type = composed::logger;
+    logger_type lg;
+    logger_type get_logger() const { return lg; }
+
+    explicit test_handler(const std::string& role, bool c = false)
+            : cont(c), lgp(std::make_shared<util::log::Logger>()), lg(lgp.get()) {
+        lg.add_attribute("Role", boost::log::attributes::constant<std::string>(role));
     }
 
-    template <class Op>
-    void operator() (Op&& op, error_code ec = {}, size_t nTransferred = 0) {
-        if (!ec) {
-            reenter (op) {
-                while (--echoes >= 0) {
-                    yield stream.async_read_some(asio::buffer(buf), move(op));
-                    yield asio::async_write(stream, asio::buffer(buf, nTransferred), move(op));
-                }
-            }
-        }
-        else {
-            rc = ec;
-        }
+    size_t allocations = 0;
+    size_t deallocations = 0;
+    std::map<void*, size_t> allocation_table;
+
+    static thread_local bool invoked_on_my_context;
+
+    void operator()(boost::system::error_code ec, int count) {
+        CHECK(allocations > 0);
+        // There was at least one allocation.
+
+        CHECK(allocation_table.empty());
+        CHECK(deallocations == allocations);
+        // But they were all deallocated before the handler was invoked.
+
+        BOOST_LOG(lg) << "test_handler: " << count << " (" << ec.message() << ")";
+    }
+
+    friend void* asio_handler_allocate(size_t size, test_handler* self) {
+        // Forward to the default implementation of asio_handler_allocate.
+        int dummy;
+        auto p = beast_asio_helpers::allocate(size, dummy);
+
+        bool inserted;
+        std::tie(std::ignore, inserted) = self->allocation_table.insert(std::make_pair(p, size));
+        CHECK(inserted);
+        // This allocation is new.
+
+        ++self->allocations;
+
+        //BOOST_LOG(self->lg) << "allocated " << p << " (" << size << " bytes)";
+
+        return p;
+    }
+
+    friend void asio_handler_deallocate(void* pointer, size_t size, test_handler* self) {
+        //BOOST_LOG(self->lg) << "deallocating " << pointer << " (" << size << " bytes)";
+
+        auto it = self->allocation_table.find(pointer);
+        REQUIRE(it != self->allocation_table.end());
+        // This allocation exists.
+
+        CHECK(size == it->second);
+        // And it is the stipulated size.
+
+        self->allocation_table.erase(it);
+        ++self->deallocations;
+
+        // Forward to the default implementation of asio_handler_deallocate.
+        int dummy;
+        beast_asio_helpers::deallocate(pointer, size, dummy);
+    }
+
+    template <class Function>
+    friend void asio_handler_invoke(Function&& function, test_handler* self) {
+        BOOST_SCOPE_EXIT_ALL(&) {
+            test_handler::invoked_on_my_context = false;
+        };
+        test_handler::invoked_on_my_context = true;
+        // Composed operations can check this thread_local to ensure that their continuations were
+        // invoked through this function.
+
+        // Forward to the default implementation of asio_handler_invoke.
+        int dummy;
+        beast_asio_helpers::invoke(std::forward<Function>(function), dummy);
+    }
+
+    friend bool asio_handler_is_continuation(test_handler* self) {
+        return self->cont;
     }
 };
 
-template <class Stream, class CompletionToken>
-BOOST_ASIO_INITFN_RESULT_TYPE(CompletionToken, void(error_code))
-asyncEcho (Stream& stream, int echoes, CompletionToken&& token) {
-    util::asio::AsyncCompletion<
-        CompletionToken, void(error_code)
-    > init { forward<CompletionToken>(token) };
+thread_local bool test_handler::invoked_on_my_context = false;
 
-    util::asio::v1::makeOperation<EchoOp<Stream>>(std::move(init.handler), stream, echoes)();
+// =======================================================================================
+// A composed operation implementation
 
+// SomeType exists just to test that the COMPOSED_OP macro correctly forwards extra template
+// arguments, whether or not the user passes them.
+template <class Handler = void(boost::system::error_code, int), class SomeType = int>
+struct test_op {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    boost::asio::steady_timer& timer;
+    boost::asio::coroutine coro;
+    boost::system::error_code ec;
+    int count = 0;
+    constexpr static int k_max_count = 10;
+
+    std::vector<int, allocator_type> v;
+
+    composed::associated_logger_t<handler_type> lg;
+
+    test_op(handler_type& h, boost::asio::steady_timer& t)
+            : timer(t), v(allocator_type(h)), lg(composed::get_associated_logger(h)) {}
+
+    void operator()(composed::op<test_op>& op);
+};
+
+template <class Handler, class Int>
+void test_op<Handler, Int>::operator()(composed::op<test_op>& op) {
+    auto role = boost::log::attribute_cast<boost::log::attributes::constant<std::string>>(
+            lg.get_attributes()["Role"]);
+    //CHECK(role.get() == "struct");
+
+    BOOST_LOG(lg) << "Task: " << count;
+    if (!ec) reenter (coro) {
+        while (++count < k_max_count) {
+            timer.expires_from_now(std::chrono::milliseconds(100));
+            yield return timer.async_wait(op(ec));
+            CHECK(test_handler::invoked_on_my_context);
+            v.insert(v.end(), 1024, count);
+        }
+    }
+    op.complete(ec, count);
+}
+
+// You can define an initiating function the traditional way, using start_op to start the op:
+template <class Token>
+auto async_test(boost::asio::steady_timer& t, Token&& token) {
+    beast::async_completion<Token, void(boost::system::error_code, int)> init{token};
+    composed::start_op<test_op<decltype(init.handler)>>(std::move(init.handler), t);
     return init.result.get();
 }
+// or you can also use: composed::async_run<test_op<>>(t, token);
 
-int main () try {
-    util::asio::IoThread io;
+// =======================================================================================
+// Test cases
 
-    auto endpoint = asio::ip::tcp::endpoint{asio::ip::tcp::v4(), 6666};
+TEST_CASE("can start an op") {
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
 
-    // Server
-    auto acceptor = asio::ip::tcp::acceptor{io.context(), endpoint};
-    auto serverSocket = asio::ip::tcp::socket{io.context()};
-    acceptor.async_accept(serverSocket, [&] (error_code ec) {
-        if (!ec) {
-            acceptor.close();
-            asyncEcho(serverSocket, kEchoes, [&] (error_code ec2) {
-                cout << "Echo server finished, woot: " << ec2.message() << "\n";
-                serverSocket.shutdown(asio::ip::tcp::socket::shutdown_both, ec2);
-                serverSocket.close(ec2);
-            });
-        }
-        else {
-            cout << "accept failed: " << ec.message() << "\n";
-        }
-    });
-
-    // Client
-    asio::ip::tcp::resolver resolver {io.context()};
-    asio::ip::tcp::socket clientSocket {io.context()};
-    try {
-        asio::connect(clientSocket, resolver.resolve({"127.0.0.1", "6666"}));
-        cout << "Connected to server\n";
-        for (int i = 0; ; ++i) {
-            auto s = std::to_string(i);
-            (void)asio::write(clientSocket, asio::buffer(s));
-            auto v = std::vector<uint8_t>(1024);
-            auto nRead = clientSocket.read_some(asio::buffer(v));
-            v.resize(nRead);
-            auto echoed = string(v.begin(), v.end());
-            cout << "Read " << echoed << "\n";
-        }
+    SUBCASE("with a async_completion initiating function") {
+        async_test(timer, test_handler{"async_completion"});
+        context.run();
     }
-    catch (system_error& e) {
-        cout << "Client exception: " << e.what() << "\n";
-    }
-    auto ec = error_code{};
-    clientSocket.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
-    clientSocket.close(ec);
-    acceptor.close(ec);
 
-    cout << "Ran " << io.join() << " handlers\n";
-    return 0;
-}
-catch (std::exception& e) {
-    cerr << "Exception in main(): " << e.what() << "\n";
+    SUBCASE("with an async_run initiating function") {
+        using composed::async_run;
+        async_run<test_op<>>(timer, test_handler{"async_run"});
+        context.run();
+    }
 }
 
-#include <boost/asio/unyield.hpp> // undef reenter, yield, and fork
+TEST_CASE("can set timed expirations on operations") {
+    using namespace std::literals::chrono_literals;
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+
+    SUBCASE("absolute") {
+        async_test(timer, composed::timed(timer, std::chrono::steady_clock::now() + 1150ms,
+                test_handler{"timed-absolute"}));
+        context.run();
+    }
+
+    SUBCASE("relative") {
+        async_test(timer, composed::timed(timer, 150ms,
+                test_handler{"timed-relative"}));
+        context.run();
+    }
+}
+
+TEST_CASE("can set signalled expirations on operations") {
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+
+    async_test(timer, composed::signalled(timer, composed::make_array(SIGINT, SIGTERM),
+            test_handler{"signalled"}));
+    std::raise(SIGTERM);
+    context.run();
+}
+
+TEST_CASE("can set timeouts yet another way") {
+    using namespace std::literals::chrono_literals;
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+    boost::asio::steady_timer timeout_timer{context, 150ms};
+
+    auto j = composed::make_timeout_joiner(
+            timer, timeout_timer, test_handler{"another-timeout"});
+    timeout_timer.async_wait(composed::branch(j, composed::timeout_tag{}));
+    async_test(timer, composed::branch(j));
+    context.run();
+}
+
+#include <boost/asio/unyield.hpp>

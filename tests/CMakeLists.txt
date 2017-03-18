@@ -3,11 +3,6 @@ project(cxx-util-tests LANGUAGES C CXX)
 ##############################################################################
 # Tests
 
-#add_executable(composed composed.cpp)
-#set_target_properties(composed PROPERTIES CXX_STANDARD 14 CXX_STANDARD_REQUIRED ON)
-#target_link_libraries(composed PRIVATE cxx-util)
-#add_test(NAME composed COMMAND composed)
-
 find_package(Nanopb REQUIRED)
 
 # Beast doesn't have a find_package config file
@@ -36,15 +31,16 @@ target_include_directories(rpc-test
 )
 add_test(NAME rpc-test COMMAND rpc-test)
 
+
+
 set(testSources
-    op.cpp
+    composed.cpp
     callback.cpp
     producerconsumer.cpp
     version.cpp
     #asio-ws.cpp
 )
 
-# TODO composed.cpp
 if(NOT MSVC)
     list(APPEND testSources variant.cpp)
 endif()
