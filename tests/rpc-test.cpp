@@ -32,6 +32,8 @@ struct MainHandler {
         logger_type lg;
         size_t allocations = 0;
         size_t deallocations = 0;
+        size_t allocation_size = 0;
+        size_t high_water_mark = 0;
         Data(util::log::Logger& l): lg(&l) {}
     };
     std::shared_ptr<Data> p;
@@ -40,12 +42,15 @@ struct MainHandler {
 
 
     void operator()() {
-        BOOST_LOG(p->lg) << "main task completed, " << p->allocations << '/' << p->deallocations
-                << " allocations/deallocations";
+        BOOST_LOG(p->lg) << "main task complete, "
+                << p->allocation_size << " bytes left allocated, "
+                << "high water mark: " << p->high_water_mark;
     }
 
     friend void* asio_handler_allocate(size_t size, MainHandler* self) {
         ++self->p->allocations;
+        self->p->allocation_size += size;
+        self->p->high_water_mark = std::max(self->p->high_water_mark, self->p->allocation_size);
 
         // Forward to the default implementation of asio_handler_allocate.
         int dummy;
@@ -54,6 +59,7 @@ struct MainHandler {
 
     friend void asio_handler_deallocate(void* pointer, size_t size, MainHandler* self) {
         ++self->p->deallocations;
+        self->p->allocation_size -= size;
 
         // Forward to the default implementation of asio_handler_deallocate.
         int dummy;
