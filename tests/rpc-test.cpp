@@ -40,7 +40,6 @@ struct MainHandler {
 
     explicit MainHandler(util::log::Logger& l): p(std::make_shared<Data>(l)) {}
 
-
     void operator()() {
         BOOST_LOG(p->lg) << "main task complete, "
                 << p->allocation_size << " bytes left allocated, "
@@ -160,7 +159,6 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
         clientStream.next_layer().close();
 
         yield return phaser.async_wait(op(ec));
-
     }
     op.complete();
 };

@@ -1,3 +1,7 @@
+// TODO:
+// - use severity logging
+// - use plf::colony
+
 #ifndef RPC_TEST_SERVER_HPP
 #define RPC_TEST_SERVER_HPP
 
@@ -14,61 +18,6 @@
 
 #include <boost/asio/yield.hpp>
 
-struct TestServer {
-    float propertyValue = 1.0;
-
-    util::log::Logger lg;
-
-    // ===================================================================================
-    // RPC request implementations
-
-    rpc_test_GetProperty_Out operator()(const rpc_test_GetProperty_In& in);
-    rpc_test_SetProperty_Out operator()(const rpc_test_SetProperty_In& in);
-
-    // ===================================================================================
-    // Event messages
-
-    void operator()(const rpc_test_RpcRequest& rpcRequest);
-    void operator()(const rpc_test_Quux&);
-};
-
-inline rpc_test_GetProperty_Out TestServer::operator()(const rpc_test_GetProperty_In& in) {
-    BOOST_LOG(lg) << "Server received a GetProperty RPC request";
-    return {true, propertyValue};
-}
-
-inline rpc_test_SetProperty_Out TestServer::operator()(const rpc_test_SetProperty_In& in) {
-    if (in.has_value) {
-        propertyValue = in.value;
-    }
-    else {
-        BOOST_LOG(lg) << "Server received an invalid SetProperty RPC request";
-    }
-    return {};
-}
-
-inline void TestServer::operator()(const rpc_test_RpcRequest& rpcRequest) {
-    auto serverToClient = rpc_test_ServerToClient{};
-    serverToClient.arg.rpcReply.has_requestId = rpcRequest.has_requestId;
-    serverToClient.arg.rpcReply.requestId = rpcRequest.requestId;
-
-    auto visitor = [&serverToClient, this](const auto& req) {
-        nanopb::assign(serverToClient.arg.rpcReply.arg, (*this)(req));
-        nanopb::assign(serverToClient.arg, serverToClient.arg.rpcReply);
-    };
-    if (nanopb::visit(visitor, rpcRequest.arg)) {
-        //static_assert(false, "TODO: send serverToClient back to client");
-        BOOST_LOG(lg) << "Server received and replied to an RPC request";
-    }
-    else {
-        BOOST_LOG(lg) << "Server received an unrecognized RPC request";
-    }
-}
-
-inline void TestServer::operator()(const rpc_test_Quux&) {
-    BOOST_LOG(lg) << "Server received a Quux event";
-}
-
 // =======================================================================================
 // Server operation
 
@@ -79,14 +28,27 @@ struct server_op: boost::asio::coroutine {
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
-    TestServer server;
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
     beast::websocket::opcode opcode;
     beast::basic_streambuf<allocator_type> buf;
 
+    float propertyValue = 1.0;
+
     util::log::Logger lg;
     boost::system::error_code ec;
     boost::system::error_code ecRead;
+
+    // ===================================================================================
+    // RPC request implementations
+
+    rpc_test_GetProperty_Out request(const rpc_test_GetProperty_In& in);
+    rpc_test_SetProperty_Out request(const rpc_test_SetProperty_In& in);
+
+    // ===================================================================================
+    // Event messages
+
+    void event(const rpc_test_RpcRequest& rpcRequest);
+    void event(const rpc_test_Quux&);
 
     server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint remoteEp)
@@ -99,6 +61,47 @@ struct server_op: boost::asio::coroutine {
 
     void operator()(composed::op<server_op>&);
 };
+
+template <class Handler>
+inline rpc_test_GetProperty_Out server_op<Handler>::request(const rpc_test_GetProperty_In& in) {
+    BOOST_LOG(lg) << "received a GetProperty RPC request";
+    return {true, propertyValue};
+}
+
+template <class Handler>
+inline rpc_test_SetProperty_Out server_op<Handler>::request(const rpc_test_SetProperty_In& in) {
+    if (in.has_value) {
+        propertyValue = in.value;
+    }
+    else {
+        BOOST_LOG(lg) << "received an invalid SetProperty RPC request";
+    }
+    return {};
+}
+
+template <class Handler>
+inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest) {
+    auto serverToClient = rpc_test_ServerToClient{};
+    serverToClient.arg.rpcReply.has_requestId = rpcRequest.has_requestId;
+    serverToClient.arg.rpcReply.requestId = rpcRequest.requestId;
+
+    auto visitor = [&serverToClient, this](const auto& req) {
+        nanopb::assign(serverToClient.arg.rpcReply.arg, this->request(req));
+        nanopb::assign(serverToClient.arg, serverToClient.arg.rpcReply);
+    };
+    if (nanopb::visit(visitor, rpcRequest.arg)) {
+        BOOST_LOG(lg) << "received and replied to an RPC request";
+
+    }
+    else {
+        BOOST_LOG(lg) << "received an unrecognized RPC request";
+    }
+}
+
+template <class Handler>
+inline void server_op<Handler>::event(const rpc_test_Quux&) {
+    BOOST_LOG(lg) << "received a Quux event";
+}
 
 template <class Handler>
 void server_op<Handler>::operator()(composed::op<server_op>& op) {
@@ -118,7 +121,7 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
                     BOOST_LOG(lg) << "decoding error";
                 }
                 else {
-                    nanopb::visit(server, clientToServer.arg);
+                    nanopb::visit([this](const auto& x) { this->event(x); }, clientToServer.arg);
                 }
             }
             BOOST_LOG(lg) << "reading ...";
