@@ -11,12 +11,15 @@
 #include <util/log.hpp>
 
 #include <composed/op_logger.hpp>
+#include <composed/phaser.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
 #include <boost/asio.hpp>
 
 #include <boost/asio/yield.hpp>
+
+#include <queue>
 
 // =======================================================================================
 // Server operation
@@ -30,7 +33,12 @@ struct server_op: boost::asio::coroutine {
 
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
     beast::websocket::opcode opcode;
-    beast::basic_streambuf<allocator_type> buf;
+    beast::basic_streambuf<allocator_type> ibuf;
+    beast::basic_streambuf<allocator_type> obuf;
+
+    struct WriteRecord { size_t size; bool enabled; WriteRecord(size_t x, bool y): size(x), enabled(y) {} };
+    std::queue<WriteRecord/*, std::deque<WriteRecord, allocator_type>*/> osizes;
+    composed::phaser<handler_type> phaser;
 
     float propertyValue = 1.0;
 
@@ -53,13 +61,28 @@ struct server_op: boost::asio::coroutine {
     server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint remoteEp)
         : ws(stream)
-        , buf(256, allocator_type(h))
+        , ibuf(256, allocator_type(h))
+        , obuf(256, allocator_type(h))
+        , osizes(/*allocator_type(h)*/)
+        , phaser(stream.get_io_service(), h)
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remoteEp));
     }
 
     void operator()(composed::op<server_op>&);
+
+    template <class Handler2 = void(boost::system::error_code)>
+    struct write_op: boost::asio::coroutine {
+        using handler_type = Handler2;
+
+        server_op& parent;
+
+        boost::system::error_code ec;
+
+        write_op(handler_type&, server_op& p): parent(p) {}
+        void operator()(composed::op<write_op>&);
+    };
 };
 
 template <class Handler>
@@ -90,8 +113,21 @@ inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest) {
         nanopb::assign(serverToClient.arg, serverToClient.arg.rpcReply);
     };
     if (nanopb::visit(visitor, rpcRequest.arg)) {
-        BOOST_LOG(lg) << "received and replied to an RPC request";
+        auto ostream = nanopb::ostream_from_dynamic_buffer(obuf);
+        auto success = nanopb::encode(ostream, serverToClient);
+        osizes.emplace(ostream.bytes_written, success);
+        if (osizes.size() == 1) {
+            composed::async_run<write_op<>>(*this, phaser.completion([this](const boost::system::error_code& ec) {
+                BOOST_LOG(lg) << "write_op: " << ec.message();
+            }));
+        }
 
+        if (!success) {
+            BOOST_LOG(lg) << "encoding failure";
+        }
+        else {
+            BOOST_LOG(lg) << "received and replied to an RPC request";
+        }
     }
     else {
         BOOST_LOG(lg) << "received an unrecognized RPC request";
@@ -113,10 +149,10 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
 
         do {
-            while (buf.size()) {
-                BOOST_LOG(lg) << buf.size() << " bytes in buffer";
+            while (ibuf.size()) {
+                BOOST_LOG(lg) << ibuf.size() << " bytes in buffer";
                 auto clientToServer = rpc_test_ClientToServer{};
-                auto istream = nanopb::istream_from_dynamic_buffer(buf);
+                auto istream = nanopb::istream_from_dynamic_buffer(ibuf);
                 if (!nanopb::decode(istream, clientToServer)) {
                     BOOST_LOG(lg) << "decoding error";
                 }
@@ -125,20 +161,25 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
                 }
             }
             BOOST_LOG(lg) << "reading ...";
-            yield return ws.async_read(opcode, buf, op(ecRead));
+            yield return ws.async_read(opcode, ibuf, op(ecRead));
         } while (!ecRead);
 
         BOOST_LOG(lg) << "read error: " << ecRead.message();
 
         // To close the connection, we're supposed to call (async_)close, then read until we get
-        // an error.
+        // an error. First cancel and wait for any outstanding writes, so our async_close doesn't
+        // interfere.
+
+        ws.next_layer().cancel(ecRead);  // ignored
+        yield return phaser.async_wait(op(std::ignore));
+
         BOOST_LOG(lg) << "closing connection";
         yield return ws.async_close({"Hodor indeed!"}, op(ec));
 
         do {
             BOOST_LOG(lg) << "reading ...";
-            buf.consume(buf.size());
-            yield return ws.async_read(opcode, buf, op(ecRead));
+            ibuf.consume(ibuf.size());
+            yield return ws.async_read(opcode, ibuf, op(ecRead));
         } while (!ecRead);
 
         if (ecRead == beast::websocket::error::closed) {
@@ -153,6 +194,26 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         BOOST_LOG(lg) << "error: " << ec.message();
     }
     op.complete();
+}
+
+template <class Handler>
+template <class Handler2>
+void server_op<Handler>::write_op<Handler2>::operator()(composed::op<write_op>& op) {
+    auto& obuf = parent.obuf;
+    auto& osizes = parent.osizes;
+    auto& ws = parent.ws;
+
+    if (!ec) reenter(this) {
+        while (osizes.size() > 0) {
+            if (osizes.front().enabled) {
+                yield return ws.async_write(
+                            beast::prepare_buffers(osizes.front().size, obuf.data()), op(ec));
+            }
+            obuf.consume(osizes.front().size);
+            osizes.pop();
+        }
+    }
+    op.complete(ec);
 }
 
 #include <boost/asio/unyield.hpp>
