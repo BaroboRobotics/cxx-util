@@ -28,6 +28,8 @@ auto async_accept_loop(boost::asio::ip::tcp::acceptor& a, LoopBody&& f, Token&& 
 //
 // TODO: figure out where something like this should live. Should it stay in namespace composed?
 
+// =======================================================================================
+
 template <class LoopBody, class Handler = void(boost::system::error_code)>
 struct accept_loop_op: boost::asio::coroutine {
     using handler_type = Handler;

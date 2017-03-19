@@ -118,6 +118,7 @@ struct client_op: boost::asio::coroutine {
     boost::asio::ip::tcp::endpoint serverEndpoint;
     beast::websocket::opcode opcode;
     beast::streambuf buf;
+    rpc_test_ClientToServer clientToServer;
 
     util::log::Logger lg;
     boost::system::error_code ec;
@@ -127,6 +128,7 @@ struct client_op: boost::asio::coroutine {
             boost::asio::ip::tcp::endpoint ep)
         : ws(stream)
         , serverEndpoint(ep)
+        , clientToServer{}
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("client"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(serverEndpoint));
@@ -146,18 +148,31 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
 
         yield {
-            auto clientToServer = rpc_test_ClientToServer{};
             clientToServer.arg.quux.value = 666;
             nanopb::assign(clientToServer.arg, clientToServer.arg.quux);
             auto ostream = nanopb::ostream_from_dynamic_buffer(buf);
             if (!nanopb::encode(ostream, clientToServer)) {
                 BOOST_LOG(lg) << "encoding failure";
                 buf.consume(buf.size());
+                ec = boost::asio::error::operation_aborted;
+                break;
             }
-            BOOST_LOG(lg) << "Encoded " << ostream.bytes_written;
             return ws.async_write(buf.data(), op(ec));
         }
-        BOOST_LOG(lg) << "wrote " << buf.size() << " bytes";
+        buf.consume(buf.size());
+
+        yield {
+            nanopb::assign(clientToServer.arg.rpcRequest.arg, clientToServer.arg.rpcRequest.arg.getProperty);
+            nanopb::assign(clientToServer.arg, clientToServer.arg.rpcRequest);
+            auto ostream = nanopb::ostream_from_dynamic_buffer(buf);
+            if (!nanopb::encode(ostream, clientToServer)) {
+                BOOST_LOG(lg) << "encoding failure";
+                buf.consume(buf.size());
+                ec = boost::asio::error::operation_aborted;
+                break;
+            }
+            return ws.async_write(buf.data(), op(ec));
+        }
         buf.consume(buf.size());
 
         // To close the connection, we're supposed to call (async_)close, then read until we get
