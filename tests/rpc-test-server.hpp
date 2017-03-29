@@ -216,6 +216,8 @@ void server_op<Handler>::write_op<Handler2>::operator()(composed::op<write_op>& 
     op.complete(ec);
 }
 
+constexpr composed::operation<server_op<>> async_server;
+
 #include <boost/asio/unyield.hpp>
 
 #endif

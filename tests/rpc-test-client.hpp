@@ -144,6 +144,8 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
     op.complete();
 }
 
+constexpr composed::operation<client_op<>> async_client;
+
 #include  <boost/asio/unyield.hpp>
 
 #endif

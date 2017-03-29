@@ -181,6 +181,12 @@ TEST_CASE("can start an op") {
         async_run<test_op<>>(timer, test_handler{"async_run"});
         context.run();
     }
+
+    SUBCASE("with an operation object") {
+        constexpr composed::operation<test_op<>> async_test2;
+        async_test2(timer, test_handler{"operation"});
+        context.run();
+    }
 }
 
 TEST_CASE("can set timed expirations on operations") {

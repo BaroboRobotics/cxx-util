@@ -158,12 +158,16 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
 
         clientStream.next_layer().close();
 
+        BOOST_LOG(lg) << "Waiting for end of phase";
+
         yield return phaser.async_wait(op(ec));
+
+        BOOST_LOG(lg) << "end of phase";
     }
     op.complete();
 };
 
-
+constexpr composed::operation<main_op<>> async_main;
 
 namespace po = boost::program_options;
 
@@ -207,7 +211,7 @@ int main (int argc, char** argv) {
             boost::asio::ip::address::from_string(serverHost), serverPort};
     boost::asio::signal_set trap{context, SIGINT, SIGTERM};
 
-    composed::async_run<main_op<>>(trap, serverEndpoint, MainHandler{lg});
+    async_main(trap, serverEndpoint, MainHandler{lg});
 
     auto nHandlers = context.run();
     BOOST_LOG(lg) << "ran " << nHandlers << " handlers, exiting";

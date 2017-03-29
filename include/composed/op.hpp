@@ -286,6 +286,14 @@ auto async_run(Args&&... args) {
     async_run_impl<Task>(std::forward_as_tuple(std::forward<Args>(args)...), indices{});
 }
 
+template <class Task>
+struct operation {
+    template <class... Args>
+    auto operator()(Args&&... args) const {
+        return async_run<Task>(std::forward<Args>(args)...);
+    }
+};
+
 }  // composed
 
 #endif
