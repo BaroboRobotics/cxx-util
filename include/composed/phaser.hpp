@@ -7,12 +7,12 @@
 
 // TODO:
 // - Unit test :(
-// - Factor out the handler-context-adoption feature of phaser_handler into a separate class.
 
 #ifndef COMPOSED_PHASER_HPP
 #define COMPOSED_PHASER_HPP
 
 #include <composed/stdlib.hpp>
+#include <composed/work.hpp>
 
 #include <beast/core/handler_helpers.hpp>
 #include <beast/core/handler_ptr.hpp>
@@ -29,9 +29,6 @@ struct phaser {
 
 public:
     phaser(boost::asio::io_service& context, Context h);
-
-    struct work;
-    // Increment this phaser's work count on construction, decrement on destruction.
 
     template <class Handler>
     auto wrap(Handler&& h);
@@ -53,9 +50,11 @@ public:
     // Wait until this phaser's work count is zero (there are no outstanding handlers/operations).
     // If the phaser's work count is already zero, this function merely acts like a `post()`.
 
+private:
+    friend struct work<phaser<Context>>;
+
     const Context& context() const { return handler; }
 
-private:
     void remove_work();
     void add_work();
 
@@ -68,70 +67,6 @@ private:
 // Inline implementation
 
 template <class Context>
-struct phaser<Context>::work {
-    explicit work(phaser& p): parent(p) {
-        parent.add_work();
-    }
-
-    work(const work& other): parent(other.parent) {
-        parent.add_work();
-    }
-
-    work(work&& other) = delete;
-
-    ~work() {
-        parent.remove_work();
-    }
-
-    phaser<Context>& parent;
-};
-
-template <class Context, class Handler>
-struct phaser_handler {
-    struct data {
-        data(Handler&, const typename phaser<Context>::work& w): work(w) {}
-        typename phaser<Context>::work work;
-    };
-
-    beast::handler_ptr<data, Handler> d;
-    // We need to use a handler_ptr to ensure ~work is called during a handler callback rather than
-    // during just a regular destructor call.
-
-    template <class DeducedHandler>
-    phaser_handler(const typename phaser<Context>::work& w, DeducedHandler&& h)
-        : d(std::forward<DeducedHandler>(h), w)
-    {}
-
-    template <class... Args>
-    void operator()(Args&&... args) {
-        const auto& context = d->work.parent.context();
-        beast_asio_helpers::invoke(
-            [ d = std::move(d)
-            , args = std::tuple<Args...>(std::forward<Args>(args)...)]() mutable {
-                auto work = d->work;  // Keep the phase alive at least until the end of this block.
-                apply([&d](auto&&... as) { d.invoke(std::forward<decltype(as)>(as)...); }, std::move(args));
-            }, context);
-    }
-
-    friend void* asio_handler_allocate(size_t size, phaser_handler* self) {
-        return beast_asio_helpers::allocate(size, self->d->work.parent.context());
-    }
-
-    friend void asio_handler_deallocate(void* pointer, size_t size, phaser_handler* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->d->work.parent.context());
-    }
-
-    template <class Function>
-    friend void asio_handler_invoke(Function&& function, phaser_handler* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(function), self->d->work.parent.context());
-    }
-
-    friend bool asio_handler_is_continuation(phaser_handler* self) {
-        return true;  // TODO: compare performance when this is false
-    }
-};
-
-template <class Context>
 phaser<Context>::phaser(boost::asio::io_service& context, Context h)
     : timer(context, decltype(timer)::clock_type::time_point::min())
     , handler(std::move(h))
@@ -140,7 +75,7 @@ phaser<Context>::phaser(boost::asio::io_service& context, Context h)
 template <class Context>
 template <class Handler>
 auto phaser<Context>::wrap(Handler&& rh) {
-    return phaser_handler<Context, std::decay_t<Handler>>{work{*this}, std::forward<Handler>(rh)};
+    return work_handler<phaser<Context>, std::decay_t<Handler>>{make_work(*this), std::forward<Handler>(rh)};
 }
 
 template <class Context>
