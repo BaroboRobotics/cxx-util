@@ -9,6 +9,7 @@
 #include <composed/op_logger.hpp>
 #include <composed/phaser.hpp>
 #include <composed/async_accept_loop.hpp>
+#include <composed/discard_results.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -118,15 +119,14 @@ struct main_op: boost::asio::coroutine {
 template <class Handler>
 void main_op<Handler>::operator()(composed::op<main_op>& op) {
     reenter(this) {
+        BOOST_LOG(lg) << "start of phase";
+
         yield {
             auto runServer = [this](
                     boost::asio::ip::tcp::socket&& s, boost::asio::ip::tcp::endpoint remoteEp) {
                 connections.emplace_front(std::move(s));
                 auto cleanup = [this, x = connections.begin()] { connections.erase(x); };
-                composed::async_run<server_op<>>(
-                        connections.front(),
-                        remoteEp,
-                        phaser.completion(cleanup));
+                async_server(connections.front(), remoteEp, phaser.wrap(cleanup));
             };
 
             auto cleanup = [this](const boost::system::error_code& ec) {
@@ -134,11 +134,11 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
                 trap.cancel();
             };
 
-            composed::async_accept_loop(acceptor, runServer, phaser.completion(cleanup));
+            composed::async_accept_loop(acceptor, runServer, phaser.wrap(cleanup));
             // Run an accept loop, handing all newly connected sockets to `runServer`. If the accept
             // loop ever exits, cancel our trap to let the daemon exit.
 
-            composed::async_run<client_op<>>(clientStream, serverEndpoint, phaser.completion());
+            async_client(clientStream, serverEndpoint, phaser.wrap(composed::discard_results));
             // Test things out with a client run.
 
             return trap.async_wait(op(ec, sigNo));

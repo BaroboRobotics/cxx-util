@@ -117,7 +117,7 @@ inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest) {
         auto success = nanopb::encode(ostream, serverToClient);
         osizes.emplace(ostream.bytes_written, success);
         if (osizes.size() == 1) {
-            composed::async_run<write_op<>>(*this, phaser.completion([this](const boost::system::error_code& ec) {
+            composed::async_run<write_op<>>(*this, phaser.wrap([this](const boost::system::error_code& ec) {
                 BOOST_LOG(lg) << "write_op: " << ec.message();
             }));
         }
