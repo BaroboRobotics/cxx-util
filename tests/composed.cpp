@@ -117,12 +117,11 @@ thread_local bool test_handler::invoked_on_my_context = false;
 // SomeType exists just to test that the COMPOSED_OP macro correctly forwards extra template
 // arguments, whether or not the user passes them.
 template <class Handler = void(boost::system::error_code, int), class SomeType = int>
-struct test_op {
+struct test_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
     boost::asio::steady_timer& timer;
-    boost::asio::coroutine coro;
     boost::system::error_code ec;
     int count = 0;
     constexpr static int k_max_count = 10;
@@ -144,7 +143,7 @@ void test_op<Handler, Int>::operator()(composed::op<test_op>& op) {
     //CHECK(role.get() == "struct");
 
     BOOST_LOG(lg) << "Task: " << count;
-    if (!ec) reenter (coro) {
+    if (!ec) reenter(this) {
         while (++count < k_max_count) {
             timer.expires_from_now(std::chrono::milliseconds(100));
             yield return timer.async_wait(op(ec));
@@ -155,36 +154,22 @@ void test_op<Handler, Int>::operator()(composed::op<test_op>& op) {
     op.complete(ec, count);
 }
 
-// You can define an initiating function the traditional way, using start_op to start the op:
-template <class Token>
-auto async_test(boost::asio::steady_timer& t, Token&& token) {
-    beast::async_completion<Token, void(boost::system::error_code, int)> init{token};
-    composed::start_op<test_op<decltype(init.handler)>>(std::move(init.handler), t);
-    return init.result.get();
-}
-// or you can also use: composed::async_run<test_op<>>(t, token);
+constexpr composed::operation<test_op<>> async_test;
 
 // =======================================================================================
 // Test cases
 
-TEST_CASE("can start an op") {
+TEST_CASE("can start a composed::op") {
     boost::asio::io_service context;
     boost::asio::steady_timer timer{context};
 
-    SUBCASE("with a async_completion initiating function") {
-        async_test(timer, test_handler{"async_completion"});
+    SUBCASE("with composed::async_run initiating function template") {
+        composed::async_run<test_op<>>(timer, test_handler{"async_run"});
         context.run();
     }
 
-    SUBCASE("with an async_run initiating function") {
-        using composed::async_run;
-        async_run<test_op<>>(timer, test_handler{"async_run"});
-        context.run();
-    }
-
-    SUBCASE("with an operation object") {
-        constexpr composed::operation<test_op<>> async_test2;
-        async_test2(timer, test_handler{"operation"});
+    SUBCASE("with composed::operation initiating function object") {
+        async_test(timer, test_handler{"operation"});
         context.run();
     }
 }
@@ -214,19 +199,6 @@ TEST_CASE("can set signalled expirations on operations") {
     async_test(timer, composed::signalled(timer, composed::make_array(SIGINT, SIGTERM),
             test_handler{"signalled"}));
     std::raise(SIGTERM);
-    context.run();
-}
-
-TEST_CASE("can set timeouts yet another way") {
-    using namespace std::literals::chrono_literals;
-    boost::asio::io_service context;
-    boost::asio::steady_timer timer{context};
-    boost::asio::steady_timer timeout_timer{context, 150ms};
-
-    auto j = composed::make_timeout_joiner(
-            timer, timeout_timer, test_handler{"another-timeout"});
-    timeout_timer.async_wait(composed::branch(j, composed::timeout_tag{}));
-    async_test(timer, composed::branch(j));
     context.run();
 }
 
