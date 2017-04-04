@@ -12,6 +12,8 @@
 
 #include <composed/op_logger.hpp>
 #include <composed/phaser.hpp>
+#include <composed/work_guard.hpp>
+#include <composed/handler_context.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -31,6 +33,8 @@ struct server_op: boost::asio::coroutine {
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
+    handler_type& handler_context;
+
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
     beast::websocket::opcode opcode;
     beast::basic_streambuf<allocator_type> ibuf;
@@ -38,7 +42,7 @@ struct server_op: boost::asio::coroutine {
 
     struct WriteRecord { size_t size; bool enabled; WriteRecord(size_t x, bool y): size(x), enabled(y) {} };
     std::queue<WriteRecord/*, std::deque<WriteRecord, allocator_type>*/> osizes;
-    composed::phaser<handler_type> phaser;
+    composed::phaser phaser;
 
     float propertyValue = 1.0;
 
@@ -60,11 +64,12 @@ struct server_op: boost::asio::coroutine {
 
     server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint remoteEp)
-        : ws(stream)
+        : handler_context(h)
+        , ws(stream)
         , ibuf(256, allocator_type(h))
         , obuf(256, allocator_type(h))
         , osizes(/*allocator_type(h)*/)
-        , phaser(stream.get_io_service(), h)
+        , phaser(stream.get_io_service())
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remoteEp));
@@ -117,9 +122,11 @@ inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest) {
         auto success = nanopb::encode(ostream, serverToClient);
         osizes.emplace(ostream.bytes_written, success);
         if (osizes.size() == 1) {
-            composed::async_run<write_op<>>(*this, phaser.wrap([this](const boost::system::error_code& ec) {
-                BOOST_LOG(lg) << "write_op: " << ec.message();
-            }));
+            auto write_handler = composed::bind_handler_context(handler_context,
+                    [this, work = composed::make_work_guard(phaser)](const boost::system::error_code& ec) {
+                        BOOST_LOG(lg) << "write_op: " << ec.message();
+                    });
+            composed::async_run<write_op<>>(*this,std::move(write_handler));
         }
 
         if (!success) {

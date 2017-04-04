@@ -9,7 +9,8 @@
 #include <composed/op_logger.hpp>
 #include <composed/phaser.hpp>
 #include <composed/async_accept_loop.hpp>
-#include <composed/discard_results.hpp>
+#include <composed/handler_context.hpp>
+#include <composed/work_guard.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -86,9 +87,11 @@ struct main_op: boost::asio::coroutine {
 
     using WsStream = beast::websocket::stream<boost::asio::ip::tcp::socket>;
 
+    handler_type& handler_context;
+
     boost::asio::signal_set& trap;
 
-    composed::phaser<handler_type> phaser;
+    composed::phaser phaser;
     boost::asio::ip::tcp::acceptor acceptor;
     std::list<WsStream/*, allocator_type*/> connections;
     // beast::handler_alloc requires std::allocator_traits usage, but std::list doesn't use
@@ -102,8 +105,9 @@ struct main_op: boost::asio::coroutine {
     int sigNo;
 
     main_op(handler_type& h, boost::asio::signal_set& ss, boost::asio::ip::tcp::endpoint ep)
-        : trap(ss)
-        , phaser(ss.get_io_service(), h)
+        : handler_context(h)
+        , trap(ss)
+        , phaser(ss.get_io_service())
         , acceptor(ss.get_io_service(), ep)
         , connections(/*allocator_type{h}*/)
         , serverEndpoint(ep)
@@ -118,28 +122,36 @@ struct main_op: boost::asio::coroutine {
 
 template <class Handler>
 void main_op<Handler>::operator()(composed::op<main_op>& op) {
+    using composed::make_work_guard;
+    using composed::bind_handler_context;
+
     reenter(this) {
         BOOST_LOG(lg) << "start of phase";
 
         yield {
-            auto runServer = [this](
+            auto work = make_work_guard(phaser);
+
+            auto runServer = [this, work](
                     boost::asio::ip::tcp::socket&& s, boost::asio::ip::tcp::endpoint remoteEp) {
                 connections.emplace_front(std::move(s));
-                auto cleanup = [this, x = connections.begin()] { connections.erase(x); };
-                async_server(connections.front(), remoteEp, phaser.wrap(cleanup));
+                auto cleanup = bind_handler_context(handler_context,
+                        [this, work, x = connections.begin()] { connections.erase(x); });
+                async_server(connections.front(), remoteEp, std::move(cleanup));
             };
 
-            auto cleanup = [this](const boost::system::error_code& ec) {
-                BOOST_LOG(lg) << "accept loop died: " << ec.message();
-                trap.cancel();
-            };
+            auto cleanup = bind_handler_context(handler_context,
+                    [this, work](const boost::system::error_code& ec) {
+                        BOOST_LOG(lg) << "accept loop died: " << ec.message();
+                        trap.cancel();
+                    });
 
-            composed::async_accept_loop(acceptor, runServer, phaser.wrap(cleanup));
+            composed::async_accept_loop(acceptor, runServer, std::move(cleanup));
             // Run an accept loop, handing all newly connected sockets to `runServer`. If the accept
             // loop ever exits, cancel our trap to let the daemon exit.
 
-            async_client(clientStream, serverEndpoint, phaser.wrap(composed::discard_results));
-            // Test things out with a client run.
+            async_client(clientStream, serverEndpoint, bind_handler_context(handler_context, []{}));
+            // Test things out with a client run. FIXME: this doesn't keep the phase alive with a
+            // work_guard.
 
             return trap.async_wait(op(ec, sigNo));
         }
