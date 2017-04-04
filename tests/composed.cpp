@@ -203,4 +203,192 @@ TEST_CASE("can set signalled expirations on operations") {
     context.run();
 }
 
+// =======================================================================================
+// work_guard
+
+struct test_work_guard {
+    size_t work_started = 0;
+    size_t work_finished = 0;
+    void on_work_started() { ++work_started; }
+    void on_work_finished() { ++work_finished; }
+};
+
+TEST_CASE("work_guard") {
+    test_work_guard exec;
+
+    SUBCASE("is default constructible") {
+        composed::work_guard<test_work_guard> w;
+    }
+
+    SUBCASE("can be constructed by make_work_guard") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+        }
+        CHECK(exec.work_started == 1);
+        CHECK(exec.work_finished == 1);
+    }
+
+    SUBCASE("can be copy-constructed") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            {
+                composed::work_guard<test_work_guard> w2{w};
+                CHECK(exec.work_started == 2);
+                CHECK(exec.work_finished == 0);
+            }
+            CHECK(exec.work_started == 2);
+            CHECK(exec.work_finished == 1);
+        }
+        CHECK(exec.work_started == 2);
+        CHECK(exec.work_finished == 2);
+    }
+
+    SUBCASE("can be copy-assigned to owned work") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            {
+                auto w2 = composed::make_work_guard(exec);
+                CHECK(exec.work_started == 2);
+                CHECK(exec.work_finished == 0);
+
+                w2 = w;
+                CHECK(exec.work_started == 3);
+                CHECK(exec.work_finished == 1);
+            }
+            CHECK(exec.work_started == 3);
+            CHECK(exec.work_finished == 2);
+        }
+        CHECK(exec.work_started == 3);
+        CHECK(exec.work_finished == 3);
+    }
+
+    SUBCASE("can be copy-assigned to unowned work") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            {
+                composed::work_guard<test_work_guard> w2;
+                CHECK(exec.work_started == 1);
+                CHECK(exec.work_finished == 0);
+
+                w2 = w;
+                CHECK(exec.work_started == 2);
+                CHECK(exec.work_finished == 0);
+            }
+            CHECK(exec.work_started == 2);
+            CHECK(exec.work_finished == 1);
+        }
+        CHECK(exec.work_started == 2);
+        CHECK(exec.work_finished == 2);
+    }
+
+    SUBCASE("can be copy-assigned to self") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            w = w;
+            CHECK(exec.work_started == 2);
+            CHECK(exec.work_finished == 1);
+        }
+        CHECK(exec.work_started == 2);
+        CHECK(exec.work_finished == 2);
+    }
+
+    SUBCASE("can be move-constructed") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            {
+                composed::work_guard<test_work_guard> w2{std::move(w)};
+                CHECK(exec.work_started == 1);
+                CHECK(exec.work_finished == 0);
+            }
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 1);
+        }
+        CHECK(exec.work_started == 1);
+        CHECK(exec.work_finished == 1);
+    }
+
+    SUBCASE("can be move-assigned to owned work") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            {
+                auto w2 = composed::make_work_guard(exec);
+                CHECK(exec.work_started == 2);
+                CHECK(exec.work_finished == 0);
+
+                w2 = std::move(w);
+                CHECK(exec.work_started == 2);
+                CHECK(exec.work_finished == 1);
+            }
+            CHECK(exec.work_started == 2);
+            CHECK(exec.work_finished == 2);
+        }
+        CHECK(exec.work_started == 2);
+        CHECK(exec.work_finished == 2);
+    }
+
+    SUBCASE("can be move-assigned to unowned work") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            {
+                composed::work_guard<test_work_guard> w2;
+                CHECK(exec.work_started == 1);
+                CHECK(exec.work_finished == 0);
+
+                w2 = std::move(w);
+                CHECK(exec.work_started == 1);
+                CHECK(exec.work_finished == 0);
+            }
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 1);
+        }
+        CHECK(exec.work_started == 1);
+        CHECK(exec.work_finished == 1);
+    }
+
+    SUBCASE("can be move-assigned to moved-from work") {
+        {
+            auto w = composed::make_work_guard(exec);
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+
+            {
+                composed::work_guard<test_work_guard> w2{std::move(w)};
+                CHECK(exec.work_started == 1);
+                CHECK(exec.work_finished == 0);
+
+                w = std::move(w2);
+                CHECK(exec.work_started == 1);
+                CHECK(exec.work_finished == 0);
+            }
+            CHECK(exec.work_started == 1);
+            CHECK(exec.work_finished == 0);
+        }
+        CHECK(exec.work_started == 1);
+        CHECK(exec.work_finished == 1);
+    }
+}
+
 #include <boost/asio/unyield.hpp>
