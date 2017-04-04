@@ -25,35 +25,42 @@
 struct test_handler {
     // A final handler to aid in checking that all the handler hooks are being exercised correctly.
 
-    const bool cont;
+    struct data {
+        explicit data(bool c): cont(c) {}
+        bool cont;
 
-    std::shared_ptr<util::log::Logger> lgp;
-    // Wrap the logger in a shared_ptr to make sure test_handler is move-constructible.
+        size_t completion_count = 0;
+
+        size_t get_logger_count = 0;
+        size_t allocate_count = 0;
+        size_t deallocate_count = 0;
+        size_t invoke_count = 0;
+        size_t is_continuation_count = 0;
+
+        util::log::Logger lg;
+        std::map<void*, size_t> allocation_table;
+    };
+
+    std::shared_ptr<data> d;
 
     using logger_type = composed::logger;
     logger_type lg;
-    logger_type get_logger() const { return lg; }
-
-    explicit test_handler(const std::string& role, bool c = false)
-            : cont(c), lgp(std::make_shared<util::log::Logger>()), lg(lgp.get()) {
-        lg.add_attribute("Role", boost::log::attributes::constant<std::string>(role));
+    logger_type get_logger() const {
+        ++d->get_logger_count;
+        return logger_type{&d->lg};
     }
 
-    size_t allocations = 0;
-    size_t deallocations = 0;
-    std::map<void*, size_t> allocation_table;
+    explicit test_handler(const std::string& role, bool c = false)
+            : d(std::make_shared<data>(c)) {
+        d->lg.add_attribute("Role", boost::log::attributes::make_constant(role));
+    }
 
-    static thread_local bool invoked_on_my_context;
-
-    void operator()(boost::system::error_code ec, int count) {
-        CHECK(allocations > 0);
-        // There was at least one allocation.
-
-        CHECK(allocation_table.empty());
-        CHECK(deallocations == allocations);
-        // But they were all deallocated before the handler was invoked.
-
-        BOOST_LOG(lg) << "test_handler: " << count << " (" << ec.message() << ")";
+    template <class... Args>
+    void operator()(Args&&...) {
+        ++d->completion_count;
+        // Check the deallocation-before-allocation guarantee.
+        CHECK(d->allocation_table.empty());
+        CHECK(d->deallocate_count == d->allocate_count);
     }
 
     friend void* asio_handler_allocate(size_t size, test_handler* self) {
@@ -62,13 +69,11 @@ struct test_handler {
         auto p = beast_asio_helpers::allocate(size, dummy);
 
         bool inserted;
-        std::tie(std::ignore, inserted) = self->allocation_table.insert(std::make_pair(p, size));
+        std::tie(std::ignore, inserted) = self->d->allocation_table.insert(std::make_pair(p, size));
         CHECK(inserted);
         // This allocation is new.
 
-        ++self->allocations;
-
-        //BOOST_LOG(self->lg) << "allocated " << p << " (" << size << " bytes)";
+        ++self->d->allocate_count;
 
         return p;
     }
@@ -76,15 +81,15 @@ struct test_handler {
     friend void asio_handler_deallocate(void* pointer, size_t size, test_handler* self) {
         //BOOST_LOG(self->lg) << "deallocating " << pointer << " (" << size << " bytes)";
 
-        auto it = self->allocation_table.find(pointer);
-        REQUIRE(it != self->allocation_table.end());
+        auto it = self->d->allocation_table.find(pointer);
+        REQUIRE(it != self->d->allocation_table.end());
         // This allocation exists.
 
         CHECK(size == it->second);
         // And it is the stipulated size.
 
-        self->allocation_table.erase(it);
-        ++self->deallocations;
+        self->d->allocation_table.erase(it);
+        ++self->d->deallocate_count;
 
         // Forward to the default implementation of asio_handler_deallocate.
         int dummy;
@@ -93,12 +98,10 @@ struct test_handler {
 
     template <class Function>
     friend void asio_handler_invoke(Function&& function, test_handler* self) {
-        BOOST_SCOPE_EXIT_ALL(&) {
-            test_handler::invoked_on_my_context = false;
-        };
-        test_handler::invoked_on_my_context = true;
-        // Composed operations can check this thread_local to ensure that their continuations were
-        // invoked through this function.
+        // TODO: hold a mutex lock here so we can test that intermediate handlers are indeed invoked
+        // on a given context.
+
+        ++self->d->invoke_count;
 
         // Forward to the default implementation of asio_handler_invoke.
         int dummy;
@@ -106,11 +109,10 @@ struct test_handler {
     }
 
     friend bool asio_handler_is_continuation(test_handler* self) {
-        return self->cont;
+        ++self->d->is_continuation_count;
+        return self->d->cont;
     }
 };
-
-thread_local bool test_handler::invoked_on_my_context = false;
 
 // =======================================================================================
 // A composed operation implementation
@@ -148,7 +150,7 @@ void test_op<Handler, Int>::operator()(composed::op<test_op>& op) {
         while (++count < k_max_count) {
             timer.expires_from_now(std::chrono::milliseconds(100));
             yield return timer.async_wait(op(ec));
-            CHECK(test_handler::invoked_on_my_context);
+            //CHECK(test_handler::invoked_on_my_context);
             v.insert(v.end(), 1024, count);
         }
     }
@@ -201,6 +203,36 @@ TEST_CASE("can set signalled expirations on operations") {
             test_handler{"signalled"}));
     std::raise(SIGTERM);
     context.run();
+}
+
+// =======================================================================================
+// handler_context
+
+TEST_CASE("can adopt another handler's execution/allocation/etc context") {
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+
+    test_handler f{"adoptee"};
+    test_handler h{"adopted-context"};
+
+    async_test(timer, composed::bind_handler_context(h, f));
+    context.run();
+
+    // The adoptee handler got the upcall, but its context was untouched.
+    CHECK(f.d->completion_count == 1);
+    CHECK(f.d->get_logger_count == 0);
+    CHECK(f.d->allocate_count == 0);
+    CHECK(f.d->deallocate_count == 0);
+    CHECK(f.d->invoke_count == 0);
+    CHECK(f.d->is_continuation_count == 0);
+
+    // The adopted handler's context was used, but it didn't get the upcall.
+    CHECK(h.d->completion_count == 0);
+    CHECK(h.d->get_logger_count > 0);
+    CHECK(h.d->allocate_count > 0);
+    CHECK(h.d->deallocate_count > 0);
+    CHECK(h.d->invoke_count > 0);
+    CHECK(h.d->is_continuation_count > 0);
 }
 
 // =======================================================================================
