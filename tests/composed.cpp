@@ -4,7 +4,8 @@
 #include <composed/op_logger.hpp>
 #include <composed/timed.hpp>
 #include <composed/signalled.hpp>
-#include <composed/object.hpp>
+#include <composed/handler_context.hpp>
+#include <composed/work_guard.hpp>
 
 #include <beast/core/async_completion.hpp>
 #include <beast/core/handler_alloc.hpp>
