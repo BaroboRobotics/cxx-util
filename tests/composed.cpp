@@ -1,7 +1,7 @@
 #include <util/doctest.h>
 #include <util/log.hpp>
 
-#include <composed/op_logger.hpp>
+#include <composed/op.hpp>
 #include <composed/timed.hpp>
 #include <composed/signalled.hpp>
 #include <composed/handler_context.hpp>

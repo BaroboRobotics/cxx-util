@@ -10,7 +10,7 @@
 
 #include <util/log.hpp>
 
-#include <composed/op_logger.hpp>
+#include <composed/op.hpp>
 #include <composed/phaser.hpp>
 #include <composed/work_guard.hpp>
 #include <composed/handler_context.hpp>

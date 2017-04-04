@@ -6,7 +6,7 @@
 
 //#include <util/doctest.h>
 
-#include <composed/op_logger.hpp>
+#include <composed/op.hpp>
 #include <composed/phaser.hpp>
 #include <composed/async_accept_loop.hpp>
 #include <composed/handler_context.hpp>

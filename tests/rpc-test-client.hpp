@@ -6,7 +6,7 @@
 
 #include <util/log.hpp>
 
-#include <composed/op_logger.hpp>
+#include <composed/op.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
