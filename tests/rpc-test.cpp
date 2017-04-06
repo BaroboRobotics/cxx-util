@@ -149,9 +149,10 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
             // Run an accept loop, handing all newly connected sockets to `runServer`. If the accept
             // loop ever exits, cancel our trap to let the daemon exit.
 
-            async_client(clientStream, serverEndpoint, bind_handler_context(handler_context, []{}));
-            // Test things out with a client run. FIXME: this doesn't keep the phase alive with a
-            // work_guard.
+            auto discard_results = bind_handler_context(handler_context, [work] {});
+
+            async_client(clientStream, serverEndpoint, std::move(discard_results));
+            // Test things out with a client run.
 
             return trap.async_wait(op(ec, sigNo));
         }
