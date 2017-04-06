@@ -40,9 +40,7 @@ struct server_op: boost::asio::coroutine {
     beast::basic_streambuf<allocator_type> ibuf;
     beast::basic_streambuf<allocator_type> obuf;
 
-    struct WriteRecord { size_t size; bool enabled; WriteRecord(size_t x, bool y): size(x), enabled(y) {} };
-    std::queue<WriteRecord/*, std::deque<WriteRecord, allocator_type>*/> osizes;
-    composed::phaser phaser;
+    composed::phaser write_phaser;
 
     float propertyValue = 1.0;
 
@@ -68,26 +66,13 @@ struct server_op: boost::asio::coroutine {
         , ws(stream)
         , ibuf(256, allocator_type(h))
         , obuf(256, allocator_type(h))
-        , osizes(/*allocator_type(h)*/)
-        , phaser(stream.get_io_service())
+        , write_phaser(stream.get_io_service())
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remoteEp));
     }
 
     void operator()(composed::op<server_op>&);
-
-    template <class Handler2 = void(boost::system::error_code)>
-    struct write_op: boost::asio::coroutine {
-        using handler_type = Handler2;
-
-        server_op& parent;
-
-        boost::system::error_code ec;
-
-        write_op(handler_type&, server_op& p): parent(p) {}
-        void operator()(composed::op<write_op>&);
-    };
 };
 
 template <class Handler>
@@ -109,6 +94,9 @@ inline rpc_test_SetProperty_Out server_op<Handler>::request(const rpc_test_SetPr
 
 template <class Handler>
 inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest) {
+    using composed::bind_handler_context;
+    using composed::make_work_guard;
+
     auto serverToClient = rpc_test_ServerToClient{};
     serverToClient.arg.rpcReply.has_requestId = rpcRequest.has_requestId;
     serverToClient.arg.rpcReply.requestId = rpcRequest.requestId;
@@ -120,14 +108,21 @@ inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest) {
     if (nanopb::visit(visitor, rpcRequest.arg)) {
         auto ostream = nanopb::ostream_from_dynamic_buffer(obuf);
         auto success = nanopb::encode(ostream, serverToClient);
-        osizes.emplace(ostream.bytes_written, success);
-        if (osizes.size() == 1) {
-            auto write_handler = composed::bind_handler_context(handler_context,
-                    [this, work = composed::make_work_guard(phaser)](const boost::system::error_code& ec) {
-                        BOOST_LOG(lg) << "write_op: " << ec.message();
-                    });
-            composed::async_run<write_op<>>(*this,std::move(write_handler));
-        }
+
+        write_phaser.dispatch(bind_handler_context(handler_context, [this, success, n = ostream.bytes_written] {
+            if (success) {
+                auto output = beast::prepare_buffers(n, obuf.data());
+                auto write_handler = bind_handler_context(handler_context,
+                        [this, n, work = make_work_guard(write_phaser)](const boost::system::error_code& ec) {
+                            obuf.consume(n);
+                            BOOST_LOG(lg) << "write_op: " << ec.message();
+                        });
+                ws.async_write(output, bind_handler_context(handler_context, std::move(write_handler)));
+            }
+            else {
+                obuf.consume(n);
+            }
+        }));
 
         if (!success) {
             BOOST_LOG(lg) << "encoding failure";
@@ -178,7 +173,7 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         // interfere.
 
         ws.next_layer().cancel(ecRead);  // ignored
-        yield return phaser.async_wait(op(std::ignore));
+        yield return write_phaser.dispatch(op());
 
         BOOST_LOG(lg) << "closing connection";
         yield return ws.async_close({"Hodor indeed!"}, op(ec));
@@ -201,26 +196,6 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         BOOST_LOG(lg) << "error: " << ec.message();
     }
     op.complete();
-}
-
-template <class Handler>
-template <class Handler2>
-void server_op<Handler>::write_op<Handler2>::operator()(composed::op<write_op>& op) {
-    auto& obuf = parent.obuf;
-    auto& osizes = parent.osizes;
-    auto& ws = parent.ws;
-
-    if (!ec) reenter(this) {
-        while (osizes.size() > 0) {
-            if (osizes.front().enabled) {
-                yield return ws.async_write(
-                            beast::prepare_buffers(osizes.front().size, obuf.data()), op(ec));
-            }
-            obuf.consume(osizes.front().size);
-            osizes.pop();
-        }
-    }
-    op.complete(ec);
 }
 
 constexpr composed::operation<server_op<>> async_server;

@@ -172,7 +172,7 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
 
         BOOST_LOG(lg) << "Waiting for end of phase";
 
-        yield return phaser.async_wait(op(ec));
+        yield return phaser.dispatch(op());
 
         BOOST_LOG(lg) << "end of phase";
     }
