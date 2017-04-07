@@ -26,21 +26,21 @@
 // =======================================================================================
 // Main
 
-struct MainHandler {
+struct main_handler {
     using logger_type = composed::logger;
     logger_type get_logger() const { return p->lg; }
 
-    struct Data {
+    struct data {
         logger_type lg;
         size_t allocations = 0;
         size_t deallocations = 0;
         size_t allocation_size = 0;
         size_t high_water_mark = 0;
-        Data(util::log::Logger& l): lg(&l) {}
+        data(util::log::Logger& l): lg(&l) {}
     };
-    std::shared_ptr<Data> p;
+    std::shared_ptr<data> p;
 
-    explicit MainHandler(util::log::Logger& l): p(std::make_shared<Data>(l)) {}
+    explicit main_handler(util::log::Logger& l): p(std::make_shared<data>(l)) {}
 
     void operator()() {
         BOOST_LOG(p->lg) << "main task complete, "
@@ -48,7 +48,7 @@ struct MainHandler {
                 << "high water mark: " << p->high_water_mark;
     }
 
-    friend void* asio_handler_allocate(size_t size, MainHandler* self) {
+    friend void* asio_handler_allocate(size_t size, main_handler* self) {
         ++self->p->allocations;
         self->p->allocation_size += size;
         self->p->high_water_mark = std::max(self->p->high_water_mark, self->p->allocation_size);
@@ -58,7 +58,7 @@ struct MainHandler {
         return beast_asio_helpers::allocate(size, dummy);
     }
 
-    friend void asio_handler_deallocate(void* pointer, size_t size, MainHandler* self) {
+    friend void asio_handler_deallocate(void* pointer, size_t size, main_handler* self) {
         ++self->p->deallocations;
         self->p->allocation_size -= size;
 
@@ -68,13 +68,13 @@ struct MainHandler {
     }
 
     template <class Function>
-    friend void asio_handler_invoke(Function&& function, MainHandler* self) {
+    friend void asio_handler_invoke(Function&& function, main_handler* self) {
         // Forward to the default implementation of asio_handler_invoke.
         int dummy;
         beast_asio_helpers::invoke(std::forward<Function>(function), dummy);
     }
 
-    friend bool asio_handler_is_continuation(MainHandler* self) {
+    friend bool asio_handler_is_continuation(main_handler* self) {
         return true;
     }
 };
@@ -85,7 +85,7 @@ struct main_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
-    using WsStream = beast::websocket::stream<boost::asio::ip::tcp::socket>;
+    using stream_type = beast::websocket::stream<boost::asio::ip::tcp::socket>;
 
     handler_type& handler_context;
 
@@ -93,16 +93,16 @@ struct main_op: boost::asio::coroutine {
 
     composed::phaser phaser;
     boost::asio::ip::tcp::acceptor acceptor;
-    std::list<WsStream/*, allocator_type*/> connections;
+    std::list<stream_type/*, allocator_type*/> connections;
     // beast::handler_alloc requires std::allocator_traits usage, but std::list doesn't use
     // std::allocator_traits until gcc-6: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=55409
 
-    boost::asio::ip::tcp::endpoint serverEndpoint;
-    WsStream clientStream;
+    boost::asio::ip::tcp::endpoint server_ep;
+    stream_type client_stream;
 
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;
-    int sigNo;
+    int sig_no;
 
     main_op(handler_type& h, boost::asio::signal_set& ss, boost::asio::ip::tcp::endpoint ep)
         : handler_context(h)
@@ -110,8 +110,8 @@ struct main_op: boost::asio::coroutine {
         , phaser(ss.get_io_service())
         , acceptor(ss.get_io_service(), ep)
         , connections(/*allocator_type{h}*/)
-        , serverEndpoint(ep)
-        , clientStream(ss.get_io_service())
+        , server_ep(ep)
+        , client_stream(ss.get_io_service())
         , lg(composed::get_associated_logger(h))
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("main"));
@@ -126,17 +126,15 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
     using composed::bind_handler_context;
 
     reenter(this) {
-        BOOST_LOG(lg) << "start of phase";
-
         yield {
             auto work = make_work_guard(phaser);
 
-            auto runServer = [this, work](
-                    boost::asio::ip::tcp::socket&& s, boost::asio::ip::tcp::endpoint remoteEp) {
+            auto run_server = [this, work](
+                    boost::asio::ip::tcp::socket&& s, const boost::asio::ip::tcp::endpoint& remote) {
                 connections.emplace_front(std::move(s));
                 auto cleanup = bind_handler_context(handler_context,
                         [this, work, x = connections.begin()] { connections.erase(x); });
-                async_server(connections.front(), remoteEp, std::move(cleanup));
+                async_server(connections.front(), remote, std::move(cleanup));
             };
 
             auto cleanup = bind_handler_context(handler_context,
@@ -145,20 +143,20 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
                         trap.cancel();
                     });
 
-            composed::async_accept_loop(acceptor, runServer, std::move(cleanup));
-            // Run an accept loop, handing all newly connected sockets to `runServer`. If the accept
-            // loop ever exits, cancel our trap to let the daemon exit.
+            composed::async_accept_loop(acceptor, run_server, std::move(cleanup));
+            // Run an accept loop, handing all newly connected sockets to `run_server`. If the
+            // accept loop ever exits, cancel our trap to let the daemon exit.
 
             auto discard_results = bind_handler_context(handler_context, [work] {});
 
-            async_client(clientStream, serverEndpoint, std::move(discard_results));
+            async_client(client_stream, server_ep, std::move(discard_results));
             // Test things out with a client run.
 
-            return trap.async_wait(op(ec, sigNo));
+            return trap.async_wait(op(ec, sig_no));
         }
 
         if (!ec) {
-            BOOST_LOG(lg) << "Trap caught signal " << sigNo;
+            BOOST_LOG(lg) << "Trap caught signal " << sig_no;
         }
         else {
             BOOST_LOG(lg) << "Trap error: " << ec.message();
@@ -169,13 +167,9 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
             con.next_layer().close();
         }
 
-        clientStream.next_layer().close();
-
-        BOOST_LOG(lg) << "Waiting for end of phase";
+        client_stream.next_layer().close();
 
         yield return phaser.dispatch(op());
-
-        BOOST_LOG(lg) << "end of phase";
     }
     op.complete();
 };
@@ -185,31 +179,31 @@ constexpr composed::operation<main_op<>> async_main;
 namespace po = boost::program_options;
 
 int main (int argc, char** argv) {
-    std::string serverHost;
-    uint16_t serverPort;
+    std::string server_host;
+    uint16_t server_port;
 
-    auto optsDesc = po::options_description{util::programPath().string() + " command line options"};
-    optsDesc.add_options()
+    auto opts_desc = po::options_description{util::programPath().string() + " command line options"};
+    opts_desc.add_options()
         ("help", "display this text")
         ("version", "display version")
-        ("host", po::value<std::string>(&serverHost)
+        ("host", po::value<std::string>(&server_host)
             ->value_name("<host>")
             ->default_value("0.0.0.0"),
             "bind to this host")
-        ("port", po::value<uint16_t>(&serverPort)
+        ("port", po::value<uint16_t>(&server_port)
             ->value_name("<port>")
             ->default_value(17739),
             "bind to this port/service")
     ;
 
-    optsDesc.add(util::log::optionsDescription());
+    opts_desc.add(util::log::optionsDescription());
 
     auto options = boost::program_options::variables_map{};
-    po::store(po::parse_command_line(argc, argv, optsDesc), options);
+    po::store(po::parse_command_line(argc, argv, opts_desc), options);
     po::notify(options);
 
     if (options.count("help")) {
-        std::cout << optsDesc << '\n';
+        std::cout << opts_desc << '\n';
         return 0;
     }
 
@@ -220,14 +214,14 @@ int main (int argc, char** argv) {
 
     util::log::Logger lg;
     boost::asio::io_service context;
-    const auto serverEndpoint = boost::asio::ip::tcp::endpoint{
-            boost::asio::ip::address::from_string(serverHost), serverPort};
+    const auto server_ep = boost::asio::ip::tcp::endpoint{
+            boost::asio::ip::address::from_string(server_host), server_port};
     boost::asio::signal_set trap{context, SIGINT, SIGTERM};
 
-    async_main(trap, serverEndpoint, MainHandler{lg});
+    async_main(trap, server_ep, main_handler{lg});
 
-    auto nHandlers = context.run();
-    BOOST_LOG(lg) << "ran " << nHandlers << " handlers, exiting";
+    auto n = context.run();
+    BOOST_LOG(lg) << "ran " << n << " handlers, exiting";
 }
 
 #include <boost/asio/unyield.hpp>
