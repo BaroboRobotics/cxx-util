@@ -201,9 +201,10 @@ namespace _ {
 
 template <class T, class = void>
 struct has_logger_type: std::false_type {};
-
 template <class T>
 struct has_logger_type<T, void_t<typename T::task_ptr::element_type::logger_type>>: std::true_type {};
+// Quick and dirty type trait to indicate if an operation's Task has a logger_type (and thus a
+// get_logger() function).
 
 }  // _
 

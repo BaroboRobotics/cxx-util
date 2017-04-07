@@ -6,6 +6,7 @@
 #include <composed/signalled.hpp>
 #include <composed/handler_context.hpp>
 #include <composed/work_guard.hpp>
+#include <composed/phaser.hpp>
 
 #include <beast/core/async_completion.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -203,6 +204,43 @@ TEST_CASE("can set signalled expirations on operations") {
             test_handler{"signalled"}));
     std::raise(SIGTERM);
     context.run();
+}
+
+// =======================================================================================
+// phaser
+
+TEST_CASE("phaser dispatches handlers in FIFO order") {
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+
+    composed::phaser phaser{context};
+
+    int i = 0;
+
+    phaser.dispatch([&] {
+        CHECK(i == 0);
+        ++i;
+        phaser.dispatch([&] {
+            CHECK(i == 1);
+            ++i;
+            phaser.dispatch([&] {
+                CHECK(i == 4);
+                ++i;
+            });
+        });
+        phaser.dispatch([&] {
+            CHECK(i == 2);
+            ++i;
+        });
+        phaser.dispatch([&] {
+            CHECK(i == 3);
+            ++i;
+        });
+    });
+
+    context.run();
+
+    CHECK(i == 5);
 }
 
 // =======================================================================================
