@@ -63,7 +63,10 @@ struct client_op: boost::asio::coroutine {
 
     util::log::Logger lg;
     boost::system::error_code ec;
-    boost::system::error_code ecRead;
+    boost::system::error_code ec_read;
+
+    void event(const rpc_test_RpcReply& rpcReply);
+    void event(const rpc_test_Quux&);
 
     client_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint ep)
@@ -78,6 +81,16 @@ struct client_op: boost::asio::coroutine {
 
     void operator()(composed::op<client_op>&);
 };
+
+template <class Handler>
+void client_op<Handler>::event(const rpc_test_RpcReply& rpcReply) {
+    BOOST_LOG(lg) << "Received an RPC reply";
+}
+
+template <class Handler>
+void client_op<Handler>::event(const rpc_test_Quux& quux) {
+    BOOST_LOG(lg) << "Received a Quux";
+}
 
 template <class Handler>
 void client_op<Handler>::operator()(composed::op<client_op>& op) {
@@ -117,8 +130,21 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         }
         buf.consume(buf.size());
 
-        // To close the connection, we're supposed to call (async_)close, then read until we get
-        // an error.
+        do {
+            while (buf.size()) {
+                BOOST_LOG(lg) << buf.size() << " bytes in buffer";
+                auto serverToClient = rpc_test_ServerToClient{};
+                auto istream = nanopb::istream_from_dynamic_buffer(buf);
+                if (!nanopb::decode(istream, serverToClient)) {
+                    BOOST_LOG(lg) << "decoding error";
+                }
+                else {
+                    nanopb::visit([this](const auto& x) { this->event(x); }, serverToClient.arg);
+                }
+            }
+            BOOST_LOG(lg) << "reading ...";
+            yield return ws.async_read(opcode, buf, op(ec_read));
+        } while (!ec_read);
 
         BOOST_LOG(lg) << "closing connection";
         yield return ws.async_close({"Hodor!"}, op(ec));
@@ -126,15 +152,15 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         do {
             BOOST_LOG(lg) << "reading ...";
             buf.consume(buf.size());
-            yield return ws.async_read(opcode, buf, op(ecRead));
-        } while (!ecRead);
+            yield return ws.async_read(opcode, buf, op(ec_read));
+        } while (!ec_read);
 
-        if (ecRead == beast::websocket::error::closed) {
+        if (ec_read == beast::websocket::error::closed) {
             BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
                     << ws.reason().code << '/' << ws.reason().reason.c_str();
         }
         else {
-            BOOST_LOG(lg) << "read error: " << ecRead.message();
+            BOOST_LOG(lg) << "read error: " << ec_read.message();
         }
 
     }

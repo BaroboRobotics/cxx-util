@@ -51,7 +51,7 @@ struct server_op: boost::asio::coroutine {
 
     util::log::Logger lg;
     boost::system::error_code ec;
-    boost::system::error_code ecRead;
+    boost::system::error_code ec_read;
 
     // ===================================================================================
     // RPC request implementations
@@ -169,16 +169,16 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
                 }
             }
             BOOST_LOG(lg) << "reading ...";
-            yield return ws.async_read(opcode, ibuf, op(ecRead));
-        } while (!ecRead);
+            yield return ws.async_read(opcode, ibuf, op(ec_read));
+        } while (!ec_read);
 
-        BOOST_LOG(lg) << "read error: " << ecRead.message();
+        BOOST_LOG(lg) << "read error: " << ec_read.message();
 
         // To close the connection, we're supposed to call (async_)close, then read until we get
         // an error. First cancel and wait for any outstanding writes, so our async_close doesn't
         // interfere.
 
-        ws.next_layer().cancel(ecRead);  // ignored
+        ws.next_layer().cancel(ec_read);  // ignored
         yield return write_phaser.dispatch(op());
 
         BOOST_LOG(lg) << "closing connection";
@@ -187,15 +187,15 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         do {
             BOOST_LOG(lg) << "reading ...";
             ibuf.consume(ibuf.size());
-            yield return ws.async_read(opcode, ibuf, op(ecRead));
-        } while (!ecRead);
+            yield return ws.async_read(opcode, ibuf, op(ec_read));
+        } while (!ec_read);
 
-        if (ecRead == beast::websocket::error::closed) {
+        if (ec_read == beast::websocket::error::closed) {
             BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
                     << ws.reason().code << '/' << ws.reason().reason.c_str();
         }
         else {
-            BOOST_LOG(lg) << "read error: " << ecRead.message();
+            BOOST_LOG(lg) << "read error: " << ec_read.message();
         }
     }
     else {
