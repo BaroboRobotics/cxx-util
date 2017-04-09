@@ -95,9 +95,10 @@ public:
         task.invoke(decay_copy(std::forward<Args>(args))...);
     }
 
-private:
     using task_ptr = beast::handler_ptr<Task, typename Task::handler_type>;
+    // FIXME: Was private, but needed by invoke_helper? Blech.
 
+private:
     task_ptr task;
     bool cont;
 
@@ -107,6 +108,38 @@ private:
         BOOST_ASSERT_MSG(!task, "Task not continued or completed! Did you forget to schedule the next continuation or call op.complete()?");
     }
 };
+
+template <class T, class = void>
+struct uses_executor: std::false_type {};
+template <class T>
+struct uses_executor<T, void_t<typename T::executor_type>>: std::true_type {};
+
+namespace _ {
+
+template <class T, class = void>
+struct invoke_helper;
+
+template <class T>
+struct invoke_helper<T, std::enable_if_t<uses_executor<T>::value>> {
+    template <class Handler, class Function>
+    static void call(T& t, Handler&, Function&& f) {
+        t.get_executor().dispatch([f = decay_copy(std::forward<Function>(f))]() mutable {
+            f();
+        });
+        // We must dispatch a lambda to override any asio_handler_invoke hook f has, otherwise we
+        // risk an infinite loop, if f's hook goes to this executor.
+    }
+};
+
+template <class T>
+struct invoke_helper<T, std::enable_if_t<!uses_executor<T>::value>> {
+    template <class Handler, class Function>
+    static void call(T&, Handler& h, Function&& f) {
+        beast_asio_helpers::invoke(std::forward<Function>(f), h);
+    }
+};
+
+}  // _
 
 template <class Task, class... Results>
 class op_continuation {
@@ -151,7 +184,8 @@ private:
 
     template <class Function>
     friend void asio_handler_invoke(Function&& f, op_continuation* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), self->task.handler());
+        _::invoke_helper<typename task_ptr::element_type>::call(
+                *self->task, self->task.handler(), std::forward<Function>(f));
     }
 
     friend bool asio_handler_is_continuation(op_continuation* self) {

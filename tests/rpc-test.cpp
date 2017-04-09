@@ -85,6 +85,9 @@ struct main_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
+    using executor_type = boost::asio::io_service::strand;
+    executor_type& get_executor() { return strand; }
+
     using stream_type = beast::websocket::stream<boost::asio::ip::tcp::socket>;
 
     handler_type& handler_context;

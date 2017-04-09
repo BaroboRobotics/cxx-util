@@ -30,6 +30,10 @@ template <class Handler = void()>
 struct server_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    using executor_type = boost::asio::io_service::strand;
+    executor_type& get_executor() { return strand; }
+
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
