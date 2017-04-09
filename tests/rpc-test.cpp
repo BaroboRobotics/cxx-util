@@ -89,8 +89,9 @@ struct main_op: boost::asio::coroutine {
 
     handler_type& handler_context;
 
-    boost::asio::signal_set& trap;
+    boost::asio::signal_set trap;
 
+    boost::asio::io_service::strand strand;
     composed::phaser phaser;
     boost::asio::ip::tcp::acceptor acceptor;
     std::list<stream_type/*, allocator_type*/> connections;
@@ -104,14 +105,16 @@ struct main_op: boost::asio::coroutine {
     boost::system::error_code ec;
     int sig_no;
 
-    main_op(handler_type& h, boost::asio::signal_set& ss, boost::asio::ip::tcp::endpoint ep)
+    main_op(handler_type& h, boost::asio::io_service& context,
+            boost::asio::ip::tcp::endpoint ep)
         : handler_context(h)
-        , trap(ss)
-        , phaser(ss.get_io_service())
-        , acceptor(ss.get_io_service(), ep)
+        , trap(context, SIGINT, SIGTERM)
+        , strand(context)
+        , phaser(strand)
+        , acceptor(context, ep)
         , connections(/*allocator_type{h}*/)
         , server_ep(ep)
-        , client_stream(ss.get_io_service())
+        , client_stream(context)
         , lg(composed::get_associated_logger(h))
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("main"));
@@ -178,7 +181,7 @@ constexpr composed::operation<main_op<>> async_main;
 
 namespace po = boost::program_options;
 
-int main (int argc, char** argv) {
+int main(int argc, char** argv) {
     std::string server_host;
     uint16_t server_port;
 
@@ -212,13 +215,13 @@ int main (int argc, char** argv) {
         return 0;
     }
 
-    util::log::Logger lg;
-    boost::asio::io_service context;
     const auto server_ep = boost::asio::ip::tcp::endpoint{
             boost::asio::ip::address::from_string(server_host), server_port};
-    boost::asio::signal_set trap{context, SIGINT, SIGTERM};
 
-    async_main(trap, server_ep, main_handler{lg});
+    util::log::Logger lg;
+    boost::asio::io_service context;
+
+    async_main(context, server_ep, main_handler{lg});
 
     auto n = context.run();
     BOOST_LOG(lg) << "ran " << n << " handlers, exiting";

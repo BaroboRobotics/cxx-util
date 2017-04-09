@@ -19,6 +19,7 @@
 #include <beast/core/handler_helpers.hpp>
 #include <beast/core/handler_ptr.hpp>
 
+#include <boost/asio/strand.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 namespace composed {
@@ -28,16 +29,15 @@ struct phaser {
     // executing the passed function object.
 
 public:
-    explicit phaser(boost::asio::io_service& context);
+    explicit phaser(boost::asio::io_service::strand& context);
 
     template <class Handler>
     void dispatch(Handler&& h);
     // Wait until this phaser's work count is zero (there are no outstanding handlers/operations),
     // then dispatch `f`. If the phaser's work count is already zero, `f` is dispatched immediately.
 
-    // FIXME these should be const to satisfy Executor requirements in Net.TS
-    void on_work_started() noexcept;
-    void on_work_finished() noexcept;
+    void on_work_started() const noexcept;
+    void on_work_finished() const noexcept;
 
 private:
     template <class Handler>
@@ -52,8 +52,9 @@ private:
     template <class Handler>
     auto make_wait_handler(Handler&& h);
 
-    boost::asio::steady_timer timer;
-    size_t work_count = 0;
+    boost::asio::io_service::strand& strand;
+    mutable boost::asio::steady_timer timer;
+    mutable std::atomic<size_t> work_count{0};
 
     using time_point = decltype(timer)::clock_type::time_point;
 };
@@ -61,8 +62,9 @@ private:
 // =============================================================================
 // Inline implementation
 
-phaser::phaser(boost::asio::io_service& context)
-    : timer(context, time_point::min())
+phaser::phaser(boost::asio::io_service::strand& context)
+    : strand(context)
+    , timer(strand.get_io_service(), time_point::min())
 {}
 
 template <class Handler>
@@ -70,9 +72,8 @@ struct phaser::ready_handler {
     work_guard<phaser> work;
     Handler h;
 
-    void operator()() {
-        beast_asio_helpers::invoke(h, h);
-        // FIXME: make phaser wrap a strand and just invoke h().
+    void operator()(const boost::system::error_code& = {}) {
+        h();
     }
 
     using logger_type = associated_logger_t<Handler>;
@@ -106,7 +107,9 @@ struct phaser::wait_handler {
     phaser& parent;
     Handler h;
 
-    void operator()(const boost::system::error_code&) { parent.make_ready_handler(std::move(h))(); }
+    void operator()(const boost::system::error_code& = {}) {
+        parent.make_ready_handler(std::move(h))();
+    }
 
     using logger_type = associated_logger_t<Handler>;
     logger_type get_logger() const { return get_associated_logger(h); }
@@ -136,32 +139,42 @@ auto phaser::make_wait_handler(Handler&& h) {
 
 template <class Handler>
 void phaser::dispatch(Handler&& h) {
-    if (timer.expires_at() == time_point::min()) {
-        make_ready_handler(std::forward<Handler>(h))();
-        // FIXME: make phaser wrap strand and strand.dispatch(h).
-    }
-    else {
-        timer.async_wait(make_wait_handler(std::forward<Handler>(h)));
+    strand.dispatch([this, h = decay_copy(std::forward<Handler>(h))] {
+        if (timer.expires_at() == time_point::min()) {
+            auto rh = make_ready_handler(std::move(h));
+            beast_asio_helpers::invoke(rh, rh);
+        }
+        else {
+            timer.async_wait(make_wait_handler(std::move(h)));
+        }
+    });
+}
+
+void phaser::on_work_started() const noexcept {
+    if (++work_count == 1) {
+        strand.dispatch([this] {
+            if (timer.expires_at() == time_point::min()) {
+                boost::system::error_code ec;
+                auto cancelled = timer.expires_at(time_point::max(), ec);
+                BOOST_ASSERT(!ec && !cancelled);
+            }
+        });
     }
 }
 
-void phaser::on_work_started() noexcept {
-    if (++work_count == 1 && timer.expires_at() == time_point::min()) {
-        boost::system::error_code ec;
-        auto cancelled = timer.expires_at(time_point::max(), ec);
-        BOOST_ASSERT(!ec && !cancelled);
+void phaser::on_work_finished() const noexcept {
+    BOOST_ASSERT(work_count.load() != 0);
+    if (--work_count == 0) {
+        strand.dispatch([this] {
+            boost::system::error_code ec;
+            if (timer.cancel_one(ec) == 0) {
+                BOOST_ASSERT(!ec);
+                auto cancelled = timer.expires_at(time_point::min(), ec);
+                BOOST_ASSERT(!cancelled);
+            }
+            BOOST_ASSERT(!ec);
+        });
     }
-}
-
-void phaser::on_work_finished() noexcept {
-    BOOST_ASSERT(work_count != 0);
-    boost::system::error_code ec;
-    if (--work_count == 0 && timer.cancel_one(ec) == 0) {
-        BOOST_ASSERT(!ec);
-        auto cancelled = timer.expires_at(time_point::min(), ec);
-        BOOST_ASSERT(!cancelled);
-    }
-    BOOST_ASSERT(!ec);
 }
 
 }  // composed

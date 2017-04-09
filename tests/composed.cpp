@@ -211,9 +211,8 @@ TEST_CASE("can set signalled expirations on operations") {
 
 TEST_CASE("phaser dispatches handlers in FIFO order") {
     boost::asio::io_service context;
-    boost::asio::steady_timer timer{context};
-
-    composed::phaser phaser{context};
+    boost::asio::io_service::strand strand{context};
+    composed::phaser phaser{strand};
 
     int i = 0;
 

@@ -40,6 +40,7 @@ struct server_op: boost::asio::coroutine {
     beast::basic_streambuf<allocator_type> ibuf;
     beast::basic_streambuf<allocator_type> obuf;
 
+    boost::asio::io_service::strand strand;
     composed::phaser write_phaser;
 
     float propertyValue = 1.0;
@@ -66,7 +67,8 @@ struct server_op: boost::asio::coroutine {
         , ws(stream)
         , ibuf(256, allocator_type(h))
         , obuf(256, allocator_type(h))
-        , write_phaser(stream.get_io_service())
+        , strand(stream.get_io_service())
+        , write_phaser(strand)
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remoteEp));
