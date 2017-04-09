@@ -197,20 +197,9 @@ auto async_run(Args&&... args);
 // =======================================================================================
 // associated_logger specializations for op_continuations
 
-namespace _ {
-
-template <class T, class = void>
-struct has_logger_type: std::false_type {};
-template <class T>
-struct has_logger_type<T, void_t<typename T::task_ptr::element_type::logger_type>>: std::true_type {};
-// Quick and dirty type trait to indicate if an operation's Task has a logger_type (and thus a
-// get_logger() function).
-
-}  // _
-
 template <class... Ts, class L>
 struct associated_logger<op_continuation<Ts...>, L,
-        std::enable_if_t<!_::has_logger_type<op_continuation<Ts...>>::value>> {
+        std::enable_if_t<!uses_logger<typename op_continuation<Ts...>::task_ptr::element_type>::value>> {
     // Specialization to allow op continuations to forward get_associated_logger calls to their
     // completion handlers.
 
@@ -222,7 +211,7 @@ struct associated_logger<op_continuation<Ts...>, L,
 
 template <class... Ts, class L>
 struct associated_logger<op_continuation<Ts...>, L,
-        std::enable_if_t<_::has_logger_type<op_continuation<Ts...>>::value>> {
+        std::enable_if_t<uses_logger<typename op_continuation<Ts...>::task_ptr::element_type>::value>> {
     // Specialization to allow tasks wrapped in op continuations to manually specify their
     // associated loggers.
 

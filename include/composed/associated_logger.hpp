@@ -104,6 +104,11 @@ associated_logger_t<T, L> get_associated_logger(const T& t, const L& l) noexcept
     return associated_logger<T, L>::get(t, l);
 }
 
+template <class T, class = void>
+struct uses_logger: std::false_type {};
+template <class T>
+struct uses_logger<T, void_t<typename T::task_ptr::element_type::logger_type>>: std::true_type {};
+
 }  // composed
 
 #endif
