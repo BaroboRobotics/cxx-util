@@ -24,12 +24,15 @@
 
 namespace composed {
 
+template <class Executor>
 struct phaser {
     // An executor whose `dispatch` function waits for all work objects to be destroyed before
     // executing the passed function object.
 
 public:
-    explicit phaser(boost::asio::io_service::strand& context);
+    template <class... Args>
+    explicit phaser(Args&&...);
+    // Pass args through to the wrapped executor.
 
     template <class Handler>
     void dispatch(Handler&& h);
@@ -52,23 +55,26 @@ private:
     template <class Handler>
     auto make_wait_handler(Handler&& h);
 
-    boost::asio::io_service::strand& strand;
+    Executor executor;
     mutable boost::asio::steady_timer timer;
     mutable std::atomic<size_t> work_count{0};
 
-    using time_point = decltype(timer)::clock_type::time_point;
+    using time_point = boost::asio::steady_timer::clock_type::time_point;
 };
 
 // =============================================================================
 // Inline implementation
 
-phaser::phaser(boost::asio::io_service::strand& context)
-    : strand(context)
-    , timer(strand.get_io_service(), time_point::min())
+template <class Executor>
+template <class... Args>
+phaser<Executor>::phaser(Args&&... args)
+    : executor(std::forward<Args>(args)...)
+    , timer(executor.get_io_service(), time_point::min())
 {}
 
+template <class Executor>
 template <class Handler>
-struct phaser::ready_handler {
+struct phaser<Executor>::ready_handler {
     work_guard<phaser> work;
     Handler h;
 
@@ -97,18 +103,21 @@ struct phaser::ready_handler {
     }
 };
 
+template <class Executor>
 template <class Handler>
-auto phaser::make_ready_handler(Handler&& h) {
+auto phaser<Executor>::make_ready_handler(Handler&& h) {
     return ready_handler<std::decay_t<Handler>>{make_work_guard(*this), std::forward<Handler>(h)};
 }
 
+template <class Executor>
 template <class Handler>
-struct phaser::wait_handler {
+struct phaser<Executor>::wait_handler {
     phaser& parent;
     Handler h;
 
     void operator()(const boost::system::error_code& = {}) {
-        parent.make_ready_handler(std::move(h))();
+        auto rh = parent.make_ready_handler(std::move(h));
+        beast_asio_helpers::invoke(rh, rh);
     }
 
     using logger_type = associated_logger_t<Handler>;
@@ -132,14 +141,16 @@ struct phaser::wait_handler {
     }
 };
 
+template <class Executor>
 template <class Handler>
-auto phaser::make_wait_handler(Handler&& h) {
+auto phaser<Executor>::make_wait_handler(Handler&& h) {
     return wait_handler<std::decay_t<Handler>>{*this, std::forward<Handler>(h)};
 }
 
+template <class Executor>
 template <class Handler>
-void phaser::dispatch(Handler&& h) {
-    strand.dispatch([this, h = decay_copy(std::forward<Handler>(h))] {
+void phaser<Executor>::dispatch(Handler&& h) {
+    executor.dispatch([this, h = decay_copy(std::forward<Handler>(h))] {
         if (timer.expires_at() == time_point::min()) {
             auto rh = make_ready_handler(std::move(h));
             beast_asio_helpers::invoke(rh, rh);
@@ -150,9 +161,10 @@ void phaser::dispatch(Handler&& h) {
     });
 }
 
-void phaser::on_work_started() const noexcept {
+template <class Executor>
+void phaser<Executor>::on_work_started() const noexcept {
     if (++work_count == 1) {
-        strand.dispatch([this] {
+        executor.dispatch([this] {
             if (timer.expires_at() == time_point::min()) {
                 boost::system::error_code ec;
                 auto cancelled = timer.expires_at(time_point::max(), ec);
@@ -162,10 +174,11 @@ void phaser::on_work_started() const noexcept {
     }
 }
 
-void phaser::on_work_finished() const noexcept {
+template <class Executor>
+void phaser<Executor>::on_work_finished() const noexcept {
     BOOST_ASSERT(work_count.load() != 0);
     if (--work_count == 0) {
-        strand.dispatch([this] {
+        executor.dispatch([this] {
             boost::system::error_code ec;
             if (timer.cancel_one(ec) == 0) {
                 BOOST_ASSERT(!ec);
