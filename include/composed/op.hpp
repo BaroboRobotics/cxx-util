@@ -32,6 +32,7 @@
 
 #include <composed/associated_logger.hpp>
 #include <composed/stdlib.hpp>
+#include <composed/handler_context.hpp>
 
 #include <beast/core/handler_helpers.hpp>
 #include <beast/core/handler_ptr.hpp>
@@ -73,6 +74,15 @@ public:
     // longer needed. Consequently, it is non-movable, non-copyable.
 
     ~op() = default;
+
+    template <class T>
+    auto wrap(T&& t) const {
+        // Wrap another handler in this operation's context. This operation MUST not complete before
+        // the wrapped handler is invoked, because the wrapped handler contains a pointer to the
+        // operation's task.
+        return bind_handler_context(
+                op_continuation<Task>{task, std::tie(), false}, std::forward<T>(t));
+    }
 
     template <class... Results>
     op_continuation<Task, Results...> operator()(Results&... results) {
@@ -165,8 +175,9 @@ private:
     std::tuple<Results&...> results;
     bool cont;
 
-    op_continuation(task_ptr&& t, std::tuple<Results&...>&& r, bool c)
-        : task(std::move(t))
+    template <class TPtr>
+    op_continuation(TPtr&& t, std::tuple<Results&...>&& r, bool c)
+        : task(std::forward<TPtr>(t))
         , results(std::move(r))
         , cont(c)
     {}

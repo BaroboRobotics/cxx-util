@@ -26,7 +26,7 @@ namespace composed {
 template <class Handler, class HandlerCtx>
 struct handler_context_binder {
     Handler handler;
-    HandlerCtx& handler_context;
+    HandlerCtx handler_context;
 
     template <class... Args>
     void operator()(Args&&... args) {
