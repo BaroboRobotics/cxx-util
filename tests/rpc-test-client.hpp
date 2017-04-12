@@ -32,8 +32,6 @@ struct client_op: boost::asio::coroutine {
     boost::asio::ip::tcp::endpoint serverEndpoint;
     beast::basic_streambuf<allocator_type> buf;
 
-    rpc_test_ClientToServer clientToServer;
-
     mutable util::log::Logger lg;
     boost::system::error_code ec;
 
@@ -48,7 +46,6 @@ struct client_op: boost::asio::coroutine {
         , ws(stream)
         , serverEndpoint(ep)
         , buf(256, allocator_type(h))
-        , clientToServer{}
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("client"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(serverEndpoint));
@@ -97,6 +94,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
 
         // send a Quux
         yield {
+            auto clientToServer = rpc_test_ClientToServer{};
             clientToServer.arg.quux.value = 666;
             nanopb::assign(clientToServer.arg, clientToServer.arg.quux);
             auto ostream = nanopb::ostream_from_dynamic_buffer(buf);
@@ -113,6 +111,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
 
         // send an RPC request
         yield {
+            auto clientToServer = rpc_test_ClientToServer{};
             nanopb::assign(clientToServer.arg.rpcRequest.arg, clientToServer.arg.rpcRequest.arg.getProperty);
             nanopb::assign(clientToServer.arg, clientToServer.arg.rpcRequest);
             auto ostream = nanopb::ostream_from_dynamic_buffer(buf);
