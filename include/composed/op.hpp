@@ -134,7 +134,7 @@ public:
     }
 
     using task_ptr = typename op<Task>::task_ptr;
-    const task_ptr& get_task() const { return *task; }
+    const task_ptr& get_task() const { return task; }
     // Provides access to the operation's task. Useful to add more Asio/Net.TS-style associated
     // object hooks without modifying this class.
 
@@ -286,9 +286,9 @@ struct transform_task_impl<TaskTpl, Token, std::tuple<From0, From...>, To...>
 
 template <class Task, class Token>
 struct transform_task;
-// Requires that Task be a class template with all type arguments. Transform all function signature
-// type arguments of the form void(...) by using them as the Signature argument in
-// handler_type<Token, Signature>::type.
+// Requires that Task be a class template with all type arguments. Transform all arguments with
+// types of the form void(...) by using them as the Signature argument in handler_type<Token,
+// Signature>::type.
 //
 // Returns the Task type with rewritten types in the ::type member typedef.
 
