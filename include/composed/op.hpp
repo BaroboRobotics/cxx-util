@@ -119,38 +119,6 @@ private:
     }
 };
 
-template <class T, class = void>
-struct uses_executor: std::false_type {};
-template <class T>
-struct uses_executor<T, void_t<typename T::executor_type>>: std::true_type {};
-
-namespace _ {
-
-template <class T, class = void>
-struct invoke_helper;
-
-template <class T>
-struct invoke_helper<T, std::enable_if_t<uses_executor<T>::value>> {
-    template <class Handler, class Function>
-    static void call(T& t, Handler&, Function&& f) {
-        t.get_executor().dispatch([f = decay_copy(std::forward<Function>(f))]() mutable {
-            f();
-        });
-        // We must dispatch a lambda to override any asio_handler_invoke hook f has, otherwise we
-        // risk an infinite loop, if f's hook goes to this executor.
-    }
-};
-
-template <class T>
-struct invoke_helper<T, std::enable_if_t<!uses_executor<T>::value>> {
-    template <class Handler, class Function>
-    static void call(T&, Handler& h, Function&& f) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), h);
-    }
-};
-
-}  // _
-
 template <class Task, class... Results>
 class op_continuation {
     // Continuation handler for an `op`. Instances of this class can be passed as handlers to
@@ -195,8 +163,7 @@ private:
 
     template <class Function>
     friend void asio_handler_invoke(Function&& f, op_continuation* self) {
-        _::invoke_helper<typename task_ptr::element_type>::call(
-                *self->task, self->task.handler(), std::forward<Function>(f));
+        beast_asio_helpers::invoke(std::forward<Function>(f), self->task.handler());
     }
 
     friend bool asio_handler_is_continuation(op_continuation* self) {
