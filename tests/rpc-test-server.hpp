@@ -38,8 +38,6 @@ struct server_op: boost::asio::coroutine {
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
     composed::phaser<composed::handler_executor<handler_type>> write_phaser;
 
-    rpc_test_ClientToServer clientToServer{};
-
     float propertyValue = 1.0;
 
     mutable util::log::Logger lg;
@@ -180,7 +178,7 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
 
         ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
 
-        yield return composed::async_rpc_read_loop(ws, clientToServer, *this, op(ec));
+        yield return composed::async_rpc_read_loop<rpc_test_ClientToServer>(ws, *this, op(ec));
 
 #if 0
         ws.next_layer().close(ec_read);  // ignored

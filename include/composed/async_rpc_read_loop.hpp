@@ -30,17 +30,16 @@ struct rpc_read_loop_op: boost::asio::coroutine {
     beast::websocket::opcode opcode;
     beast::basic_streambuf<allocator_type> buf;
 
-    T& message;
+    T message;
     EventProc& event_processor;
 
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;
 
     rpc_read_loop_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& s,
-            T& m, EventProc& ep)
+            EventProc& ep)
         : ws(s)
         , buf(256, allocator_type(h))
-        , message(m)
         , event_processor(ep)
         , lg(composed::get_associated_logger(h))
     {}
@@ -53,6 +52,7 @@ void rpc_read_loop_op<T, EventProc, Handler>::operator()(composed::op<rpc_read_l
     if (!ec) reenter(this) {
         while (true) {
             while (buf.size()) {
+                message = {};
                 if (nanopb::decode(buf, message)) {
                     yield {
                         auto h = op();
@@ -78,9 +78,9 @@ void rpc_read_loop_op<T, EventProc, Handler>::operator()(composed::op<rpc_read_l
 
 template <class T, class EventProc, class Token>
 auto async_rpc_read_loop(beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
-        T& message, EventProc& event_processor, Token&& token) {
+        EventProc& event_processor, Token&& token) {
     return composed::operation<rpc_read_loop_op<T, EventProc>>{}(
-            stream, message, event_processor, std::forward<Token>(token));
+            stream, event_processor, std::forward<Token>(token));
 }
 
 }  // composed

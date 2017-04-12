@@ -33,7 +33,6 @@ struct client_op: boost::asio::coroutine {
     beast::basic_streambuf<allocator_type> buf;
 
     rpc_test_ClientToServer clientToServer;
-    rpc_test_ServerToClient serverToClient;
 
     mutable util::log::Logger lg;
     boost::system::error_code ec;
@@ -50,7 +49,6 @@ struct client_op: boost::asio::coroutine {
         , serverEndpoint(ep)
         , buf(256, allocator_type(h))
         , clientToServer{}
-        , serverToClient{}
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("client"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(serverEndpoint));
@@ -94,7 +92,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
                             BOOST_LOG(lg) << "read loop error: " << ec.message();
                         }
                     });
-            composed::async_rpc_read_loop(ws, serverToClient, *this, std::move(cleanup));
+            composed::async_rpc_read_loop<rpc_test_ServerToClient>(ws, *this, std::move(cleanup));
         }
 
         // send a Quux
