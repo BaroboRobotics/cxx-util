@@ -13,7 +13,8 @@
 #include <composed/op.hpp>
 #include <composed/phaser.hpp>
 #include <composed/work_guard.hpp>
-#include <composed/handler_context.hpp>
+#include <composed/async_rpc_read_loop.hpp>
+#include <composed/handler_executor.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
@@ -31,120 +32,143 @@ struct server_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
-    using executor_type = boost::asio::io_service::strand;
-    executor_type& get_executor() { return strand; }
-
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
-    handler_type& handler_context;
-
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
-    beast::websocket::opcode opcode;
-    beast::basic_streambuf<allocator_type> ibuf;
-    beast::basic_streambuf<allocator_type> obuf;
+    composed::phaser<composed::handler_executor<handler_type>> write_phaser;
 
-    boost::asio::io_service::strand strand;
-    composed::phaser write_phaser;
+    rpc_test_ClientToServer clientToServer{};
 
     float propertyValue = 1.0;
 
-    util::log::Logger lg;
+    mutable util::log::Logger lg;
     boost::system::error_code ec;
-    boost::system::error_code ec_read;
 
     // ===================================================================================
     // RPC request implementations
 
-    rpc_test_GetProperty_Out request(const rpc_test_GetProperty_In& in);
-    rpc_test_SetProperty_Out request(const rpc_test_SetProperty_In& in);
+    template <class H>
+    void request(const rpc_test_GetProperty_In& in, H&& handler);
+    template <class H>
+    void request(const rpc_test_SetProperty_In& in, H&& handler);
 
     // ===================================================================================
     // Event messages
 
-    void event(const rpc_test_RpcRequest& rpcRequest);
-    void event(const rpc_test_Quux&);
+    template <class H>
+    void event(const rpc_test_RpcRequest& rpcRequest, H&& handler);
+    template <class H>
+    void event(const rpc_test_Quux&, H&& handler);
 
     server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
             boost::asio::ip::tcp::endpoint remoteEp)
-        : handler_context(h)
-        , ws(stream)
-        , ibuf(256, allocator_type(h))
-        , obuf(256, allocator_type(h))
-        , strand(stream.get_io_service())
-        , write_phaser(strand)
+        : ws(stream)
+        , write_phaser(stream.get_io_service(), h)
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remoteEp));
     }
 
     void operator()(composed::op<server_op>&);
+
+private:
+    template <class H = void()>
+    struct reply_op;
+
+    template <class T, class Token>
+    auto async_reply(const T& message, Token&& token) {
+        return composed::operation<reply_op<>>{}(*this, message, std::forward<Token>(token));
+    }
 };
 
 template <class Handler>
-inline rpc_test_GetProperty_Out server_op<Handler>::request(const rpc_test_GetProperty_In& in) {
-    BOOST_LOG(lg) << "received a GetProperty RPC request";
-    return {true, propertyValue};
+template <class H>
+struct server_op<Handler>::reply_op: boost::asio::coroutine {
+    using handler_type = H;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    server_op& self;
+    composed::work_guard<composed::phaser<composed::handler_executor<server_op::handler_type>>> work;
+
+    beast::basic_streambuf<allocator_type> buf;
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::system::error_code ec;
+
+    template <class T>
+    reply_op(handler_type& h, server_op& s, const T& message)
+        : self(s)
+        , buf(256, allocator_type(h))
+        , lg(composed::get_associated_logger(h))
+    {
+        auto serverToClient = rpc_test_ServerToClient{};
+        nanopb::assign(serverToClient.arg.rpcReply.arg, message);
+        nanopb::assign(serverToClient.arg, serverToClient.arg.rpcReply);
+        auto success = nanopb::encode(buf, serverToClient);
+        BOOST_ASSERT(success);
+    }
+
+    void operator()(composed::op<reply_op>& op);
+};
+
+template <class Handler>
+template <class H>
+void server_op<Handler>::reply_op<H>::
+operator()(composed::op<reply_op>& op) {
+    if (!ec) reenter(this) {
+        yield return self.write_phaser.dispatch(op());
+        work = composed::make_work_guard(self.write_phaser);
+        yield return self.ws.async_write(buf.data(), op(ec));
+    }
+    else {
+        BOOST_LOG(lg) << "reply error: " << ec.message();
+    }
+    op.complete();
 }
 
 template <class Handler>
-inline rpc_test_SetProperty_Out server_op<Handler>::request(const rpc_test_SetProperty_In& in) {
+template <class H>
+inline void server_op<Handler>::request(const rpc_test_GetProperty_In& in, H&& handler) {
+    BOOST_LOG(lg) << "received a GetProperty RPC request";
+    this->async_reply(rpc_test_GetProperty_Out{true, propertyValue}, std::forward<H>(handler));
+}
+
+template <class Handler>
+template <class H>
+inline void server_op<Handler>::request(const rpc_test_SetProperty_In& in, H&& handler) {
     if (in.has_value) {
         propertyValue = in.value;
     }
     else {
         BOOST_LOG(lg) << "received an invalid SetProperty RPC request";
     }
-    return {};
+
+    this->async_reply(rpc_test_GetProperty_Out{}, std::forward<H>(handler));
 }
 
 template <class Handler>
-inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest) {
-    using composed::bind_handler_context;
+template <class H>
+inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest, H&& handler) {
     using composed::make_work_guard;
 
     auto serverToClient = rpc_test_ServerToClient{};
     serverToClient.arg.rpcReply.has_requestId = rpcRequest.has_requestId;
     serverToClient.arg.rpcReply.requestId = rpcRequest.requestId;
 
-    auto visitor = [&serverToClient, this](const auto& req) {
-        nanopb::assign(serverToClient.arg.rpcReply.arg, this->request(req));
-        nanopb::assign(serverToClient.arg, serverToClient.arg.rpcReply);
-    };
-    if (nanopb::visit(visitor, rpcRequest.arg)) {
-        auto ostream = nanopb::ostream_from_dynamic_buffer(obuf);
-        auto success = nanopb::encode(ostream, serverToClient);
-
-        write_phaser.dispatch(bind_handler_context(handler_context, [this, success, n = ostream.bytes_written] {
-            if (success) {
-                auto output = beast::prepare_buffers(n, obuf.data());
-                auto write_handler = bind_handler_context(handler_context,
-                        [this, n, work = make_work_guard(write_phaser)](const boost::system::error_code& ec) {
-                            obuf.consume(n);
-                            BOOST_LOG(lg) << "write_op: " << ec.message();
-                        });
-                ws.async_write(output, bind_handler_context(handler_context, std::move(write_handler)));
-            }
-            else {
-                obuf.consume(n);
-            }
-        }));
-
-        if (!success) {
-            BOOST_LOG(lg) << "encoding failure";
-        }
-        else {
-            BOOST_LOG(lg) << "received and replied to an RPC request";
-        }
-    }
-    else {
+    auto h = handler;
+    auto visitor = [this, h](const auto& req) mutable { this->request(req, std::move(h)); };
+    if (!nanopb::visit(visitor, rpcRequest.arg)) {
         BOOST_LOG(lg) << "received an unrecognized RPC request";
+        ws.get_io_service().post(std::move(h));
     }
 }
 
 template <class Handler>
-inline void server_op<Handler>::event(const rpc_test_Quux&) {
+template <class H>
+inline void server_op<Handler>::event(const rpc_test_Quux&, H&& handler) {
     BOOST_LOG(lg) << "received a Quux event";
+    ws.get_io_service().post(std::forward<H>(handler));
 }
 
 template <class Handler>
@@ -156,47 +180,18 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
 
         ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
 
-        do {
-            while (ibuf.size()) {
-                BOOST_LOG(lg) << ibuf.size() << " bytes in buffer";
-                auto clientToServer = rpc_test_ClientToServer{};
-                auto istream = nanopb::istream_from_dynamic_buffer(ibuf);
-                if (!nanopb::decode(istream, clientToServer)) {
-                    BOOST_LOG(lg) << "decoding error";
-                }
-                else {
-                    nanopb::visit([this](const auto& x) { this->event(x); }, clientToServer.arg);
-                }
-            }
-            BOOST_LOG(lg) << "reading ...";
-            yield return ws.async_read(opcode, ibuf, op(ec_read));
-        } while (!ec_read);
+        yield return composed::async_rpc_read_loop(ws, clientToServer, *this, op(ec));
 
-        BOOST_LOG(lg) << "read error: " << ec_read.message();
-
-        // To close the connection, we're supposed to call (async_)close, then read until we get
-        // an error. First cancel and wait for any outstanding writes, so our async_close doesn't
-        // interfere.
-
-        ws.next_layer().cancel(ec_read);  // ignored
+#if 0
+        ws.next_layer().close(ec_read);  // ignored
+        BOOST_LOG(lg) << "waiting for write loop";
         yield return write_phaser.dispatch(op());
-
-        BOOST_LOG(lg) << "closing connection";
-        yield return ws.async_close({"Hodor indeed!"}, op(ec));
-
-        do {
-            BOOST_LOG(lg) << "reading ...";
-            ibuf.consume(ibuf.size());
-            yield return ws.async_read(opcode, ibuf, op(ec_read));
-        } while (!ec_read);
-
-        if (ec_read == beast::websocket::error::closed) {
-            BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
-                    << ws.reason().code << '/' << ws.reason().reason.c_str();
-        }
-        else {
-            BOOST_LOG(lg) << "read error: " << ec_read.message();
-        }
+        BOOST_LOG(lg) << "write loop ended";
+#endif
+    }
+    else if (ec == beast::websocket::error::closed) {
+        BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
+                << ws.reason().code << '/' << ws.reason().reason.c_str();
     }
     else {
         BOOST_LOG(lg) << "error: " << ec.message();

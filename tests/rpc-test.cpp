@@ -85,17 +85,13 @@ struct main_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
-    using executor_type = boost::asio::io_service::strand;
-    executor_type& get_executor() { return strand; }
-
     using stream_type = beast::websocket::stream<boost::asio::ip::tcp::socket>;
 
     handler_type& handler_context;
 
     boost::asio::signal_set trap;
 
-    boost::asio::io_service::strand strand;
-    composed::phaser phaser;
+    composed::phaser<composed::handler_executor<handler_type>> phaser;
     boost::asio::ip::tcp::acceptor acceptor;
     std::list<stream_type/*, allocator_type*/> connections;
     // beast::handler_alloc requires std::allocator_traits usage, but std::list doesn't use
@@ -112,8 +108,7 @@ struct main_op: boost::asio::coroutine {
             boost::asio::ip::tcp::endpoint ep)
         : handler_context(h)
         , trap(context, SIGINT, SIGTERM)
-        , strand(context)
-        , phaser(strand)
+        , phaser(context, h)
         , acceptor(context, ep)
         , connections(/*allocator_type{h}*/)
         , server_ep(ep)
@@ -128,8 +123,8 @@ struct main_op: boost::asio::coroutine {
 
 template <class Handler>
 void main_op<Handler>::operator()(composed::op<main_op>& op) {
-    using composed::make_work_guard;
     using composed::bind_handler_context;
+    using composed::make_work_guard;
 
     reenter(this) {
         yield {
@@ -143,7 +138,7 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
                 async_server(connections.front(), remote, std::move(cleanup));
             };
 
-            auto cleanup = bind_handler_context(handler_context,
+            auto cleanup = op.wrap(
                     [this, work](const boost::system::error_code& ec) {
                         BOOST_LOG(lg) << "accept loop died: " << ec.message();
                         trap.cancel();
@@ -153,9 +148,7 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
             // Run an accept loop, handing all newly connected sockets to `run_server`. If the
             // accept loop ever exits, cancel our trap to let the daemon exit.
 
-            auto discard_results = bind_handler_context(handler_context, [work] {});
-
-            async_client(client_stream, server_ep, std::move(discard_results));
+            async_client(client_stream, server_ep, op.wrap([work] {}));
             // Test things out with a client run.
 
             return trap.async_wait(op(ec, sig_no));
