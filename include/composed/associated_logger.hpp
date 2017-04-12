@@ -46,7 +46,7 @@ public:
     }
     decltype(auto) get_attributes() const { return lg->get_attributes(); }
 
-    explicit logger(logger_type* l = default_logger()): lg(l) {}
+    logger(logger_type* l = default_logger()): lg(l) {}
 
     static logger_type* default_logger() {
         thread_local logger_type lg;
@@ -107,7 +107,7 @@ associated_logger_t<T, L> get_associated_logger(const T& t, const L& l) noexcept
 template <class T, class = void>
 struct uses_logger: std::false_type {};
 template <class T>
-struct uses_logger<T, void_t<typename T::task_ptr::element_type::logger_type>>: std::true_type {};
+struct uses_logger<T, void_t<typename T::logger_type>>: std::true_type {};
 
 }  // composed
 
