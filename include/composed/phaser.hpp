@@ -34,15 +34,24 @@ public:
     explicit phaser(Args&&...);
     // Pass args through to the wrapped executor.
 
+    boost::asio::io_service& get_io_service() { return executor.get_io_service(); }
+
     template <class Handler>
     void dispatch(Handler&& h);
     // Wait until this phaser's work count is zero (there are no outstanding handlers/operations),
-    // then dispatch `f`. If the phaser's work count is already zero, `f` is dispatched immediately.
+    // then dispatch `h`. If the phaser's work count is already zero, `h` is dispatched immediately.
+
+    template <class Handler>
+    void post(Handler&& h);
+    // Same as dispatch, but `h` is never dispatched immediately.
 
     void on_work_started() const noexcept;
     void on_work_finished() const noexcept;
 
 private:
+    template <class Handler>
+    auto make_phase(Handler&& h);
+
     template <class Handler>
     struct ready_handler;
 
@@ -71,6 +80,72 @@ phaser<Executor>::phaser(Args&&... args)
     : executor(std::forward<Args>(args)...)
     , timer(executor.get_io_service(), time_point::min())
 {}
+
+template <class Executor>
+template <class Handler>
+void phaser<Executor>::dispatch(Handler&& h) {
+    executor.dispatch(make_phase(std::forward<Handler>(h)));
+}
+
+template <class Executor>
+template <class Handler>
+void phaser<Executor>::post(Handler&& h) {
+    executor.post(make_phase(std::forward<Handler>(h)));
+}
+
+template <class Executor>
+void phaser<Executor>::on_work_started() const noexcept {
+    if (++work_count == 1) {
+        executor.dispatch([this] {
+            if (timer.expires_at() == time_point::min()) {
+                boost::system::error_code ec;
+                util::log::Logger lg;
+                //BOOST_LOG(lg) << "in phase";
+                auto cancelled = timer.expires_at(time_point::max(), ec);
+                BOOST_ASSERT(!ec && !cancelled);
+            }
+        });
+    }
+}
+
+template <class Executor>
+void phaser<Executor>::on_work_finished() const noexcept {
+    BOOST_ASSERT(work_count.load() != 0);
+    if (--work_count == 0) {
+        executor.dispatch([this] {
+            boost::system::error_code ec;
+            if (timer.cancel_one(ec) == 0) {
+                BOOST_ASSERT(!ec);
+                util::log::Logger lg;
+                //BOOST_LOG(lg) << "out of phase";
+                auto cancelled = timer.expires_at(time_point::min(), ec);
+                BOOST_ASSERT(!cancelled);
+            }
+            else {
+                util::log::Logger lg;
+                //BOOST_LOG(lg) << "next phase";
+            }
+            BOOST_ASSERT(!ec);
+        });
+    }
+}
+
+template <class Executor>
+template <class Handler>
+auto phaser<Executor>::make_phase(Handler&& h) {
+    return [this, h = decay_copy(std::forward<Handler>(h))] {
+        util::log::Logger lg;
+        if (timer.expires_at() == time_point::min()) {
+            //BOOST_LOG(lg) << "dispatch invokes immediately";
+            auto rh = make_ready_handler(std::move(h));
+            beast_asio_helpers::invoke(rh, rh);
+        }
+        else {
+            //BOOST_LOG(lg) << "dispatch defers";
+            timer.async_wait(make_wait_handler(std::move(h)));
+        }
+    };
+}
 
 template <class Executor>
 template <class Handler>
@@ -145,49 +220,6 @@ template <class Executor>
 template <class Handler>
 auto phaser<Executor>::make_wait_handler(Handler&& h) {
     return wait_handler<std::decay_t<Handler>>{*this, std::forward<Handler>(h)};
-}
-
-template <class Executor>
-template <class Handler>
-void phaser<Executor>::dispatch(Handler&& h) {
-    executor.dispatch([this, h = decay_copy(std::forward<Handler>(h))] {
-        if (timer.expires_at() == time_point::min()) {
-            auto rh = make_ready_handler(std::move(h));
-            beast_asio_helpers::invoke(rh, rh);
-        }
-        else {
-            timer.async_wait(make_wait_handler(std::move(h)));
-        }
-    });
-}
-
-template <class Executor>
-void phaser<Executor>::on_work_started() const noexcept {
-    if (++work_count == 1) {
-        executor.dispatch([this] {
-            if (timer.expires_at() == time_point::min()) {
-                boost::system::error_code ec;
-                auto cancelled = timer.expires_at(time_point::max(), ec);
-                BOOST_ASSERT(!ec && !cancelled);
-            }
-        });
-    }
-}
-
-template <class Executor>
-void phaser<Executor>::on_work_finished() const noexcept {
-    BOOST_ASSERT(work_count.load() != 0);
-    if (--work_count == 0) {
-        executor.dispatch([this] {
-            boost::system::error_code ec;
-            if (timer.cancel_one(ec) == 0) {
-                BOOST_ASSERT(!ec);
-                auto cancelled = timer.expires_at(time_point::min(), ec);
-                BOOST_ASSERT(!cancelled);
-            }
-            BOOST_ASSERT(!ec);
-        });
-    }
 }
 
 }  // composed
