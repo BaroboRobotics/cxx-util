@@ -44,6 +44,10 @@ public:
     decltype(auto) add_attribute(Args&&... args) {
         return lg->add_attribute(std::forward<Args>(args)...);
     }
+    template <class... Args>
+    decltype(auto) remove_attribute(Args&&... args) {
+        return lg->remove_attribute(std::forward<Args>(args)...);
+    }
     decltype(auto) get_attributes() const { return lg->get_attributes(); }
 
     logger(logger_type* l = default_logger()): lg(l) {}

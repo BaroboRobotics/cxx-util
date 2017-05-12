@@ -74,6 +74,8 @@ public:
     }
 
     auto& future() { return future_reply; }
+    const auto& future() const { return future_reply; }
+
     uint32_t id() { return id_; }
 
 private:
