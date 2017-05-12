@@ -53,6 +53,8 @@ public:
         return &lg;
     }
 
+    logger_type clone() { return *lg; }
+
 private:
     logger_type* lg;
 };
