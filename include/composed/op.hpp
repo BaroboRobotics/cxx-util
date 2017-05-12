@@ -6,26 +6,12 @@
 // Infrastructure for easily defining composed operations. Here be footguns.
 //
 // TODO:
-// - Implement a fork-join pool of some sort. Thoughts: difficult to fork safely inside a task,
-//   because the forked task may need to run on the same execution context, but that is only
-//   accessible if you have a copy of the upcall handler, which is released by op.complete().
-//   Making op.complete() asynchronous is hacky and annoying: maybe allocate a op::completion struct
-//   to store the results of the op and dispatch it when the last fork is done? Might be easier to
-//   implement the fork-join infrastructure *outside* the task, as this would cover the timed
-//   operation use case described below.
-//
-// - Generalize timer/signal_set terminator technique, perhaps using the fork-join pool
-//
 // - Figure out some way of enforcing op.complete() not called on first invocation. throw if !cont?
 //   Maybe a bitmask of cont, first?
 //
 // - Require Task::operator() to return some sort of failsafe object to:
 //   1. require that op.complete() is called at least once
 //   2. require that yield is used with op()
-//
-// - EBO for Continuation::Data members
-// - standardese
-// - Hunter
 
 #ifndef COMPOSED_OP_HPP
 #define COMPOSED_OP_HPP
