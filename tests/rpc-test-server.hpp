@@ -15,14 +15,15 @@
 #include <composed/work_guard.hpp>
 #include <composed/async_rpc_read_loop.hpp>
 #include <composed/handler_executor.hpp>
+#include <composed/discard_results.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/handler_alloc.hpp>
 #include <boost/asio.hpp>
 
-#include <boost/asio/yield.hpp>
+#include <boost/log/attributes/scoped_attribute.hpp>
 
-#include <queue>
+#include <boost/asio/yield.hpp>
 
 // =======================================================================================
 // Server operation
@@ -31,12 +32,13 @@ template <class Handler = void()>
 struct server_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
+    using executor_type = composed::handler_executor<handler_type>;
 
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
     beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
-    composed::phaser<composed::handler_executor<handler_type>> write_phaser;
+    composed::phaser<executor_type> write_phaser;
 
     float propertyValue = 1.0;
 
@@ -44,12 +46,12 @@ struct server_op: boost::asio::coroutine {
     boost::system::error_code ec;
 
     server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
-            boost::asio::ip::tcp::endpoint remoteEp)
+            boost::asio::ip::tcp::endpoint remote_ep)
         : ws(stream)
         , write_phaser(stream.get_io_service(), h)
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
-        lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remoteEp));
+        lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remote_ep));
     }
 
     void operator()(composed::op<server_op>&);
@@ -67,16 +69,25 @@ private:
     // RPC request implementations
 
     template <class H>
-    void request(const rpc_test_GetProperty_In& in, H&& handler);
+    void request(uint32_t rid, const rpc_test_GetProperty_In& in, H&& handler);
     template <class H>
-    void request(const rpc_test_SetProperty_In& in, H&& handler);
+    void request(uint32_t rid, const rpc_test_SetProperty_In& in, H&& handler);
 
-    template <class H = void()>
-    struct reply_op;
+    template <class H = void(boost::system::error_code)>
+    struct write_event_op;
 
     template <class T, class Token>
-    auto async_reply(const T& message, Token&& token) {
-        return composed::operation<reply_op<>>{}(*this, message, std::forward<Token>(token));
+    auto async_write_event(const T& message, Token&& token) {
+        return composed::operation<write_event_op<>>{}(*this, message, std::forward<Token>(token));
+    }
+
+    template <class T, class Token>
+    auto async_write_reply(uint32_t rid, const T& message, Token&& token) {
+        auto reply = rpc_test_RpcReply{};
+        reply.has_requestId = true;
+        reply.requestId = rid;
+        nanopb::assign(reply.arg, message);
+        return async_write_event(reply, std::forward<Token>(token));
     }
 };
 
@@ -88,9 +99,12 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
     if (!ec) reenter(this) {
         yield return ws.async_accept(op(ec));
 
-        BOOST_LOG(lg) << "accepted WebSocket connection";
+        BOOST_LOG(lg) << "WebSocket accepted";
 
         ws.set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
+
+        yield return async_write_event(rpc_test_Quux{}, op(ec));
+        BOOST_LOG(lg) << "sent a Quux";
 
         yield return composed::async_rpc_read_loop<rpc_test_ClientToServer>(ws, *this, op(ec));
 
@@ -116,17 +130,18 @@ constexpr composed::operation<server_op<>> async_server;
 template <class Handler>
 template <class H>
 inline void server_op<Handler>::event(const rpc_test_RpcRequest& rpcRequest, H&& handler) {
-    using composed::make_work_guard;
-
-    auto serverToClient = rpc_test_ServerToClient{};
-    serverToClient.arg.rpcReply.has_requestId = rpcRequest.has_requestId;
-    serverToClient.arg.rpcReply.requestId = rpcRequest.requestId;
-
-    auto h = handler;
-    auto visitor = [this, h](const auto& req) mutable { this->request(req, std::move(h)); };
+    if (!rpcRequest.has_requestId) {
+        BOOST_LOG(lg) << "Received an RPC request without a request ID";
+        ws.get_io_service().post(std::forward<H>(handler));
+        return;
+    }
+    BOOST_LOG_SCOPED_LOGGER_TAG(lg, "RequestId", std::to_string(rpcRequest.requestId));
+    auto visitor = [this, handler, rid = rpcRequest.requestId](const auto& req) mutable {
+        this->request(rid, req, std::move(handler));
+    };
     if (!nanopb::visit(visitor, rpcRequest.arg)) {
         BOOST_LOG(lg) << "received an unrecognized RPC request";
-        ws.get_io_service().post(std::move(h));
+        ws.get_io_service().post(std::forward<H>(handler));
     }
 }
 
@@ -137,17 +152,18 @@ inline void server_op<Handler>::event(const rpc_test_Quux&, H&& handler) {
     ws.get_io_service().post(std::forward<H>(handler));
 }
 
-
 template <class Handler>
 template <class H>
-inline void server_op<Handler>::request(const rpc_test_GetProperty_In& in, H&& handler) {
+inline void server_op<Handler>::request(uint32_t rid, const rpc_test_GetProperty_In& in, H&& handler) {
     BOOST_LOG(lg) << "received a GetProperty RPC request";
-    this->async_reply(rpc_test_GetProperty_Out{true, propertyValue}, std::forward<H>(handler));
+    this->async_write_reply(rid, rpc_test_GetProperty_Out{true, propertyValue},
+            composed::discard_results(std::forward<H>(handler)));
 }
 
 template <class Handler>
 template <class H>
-inline void server_op<Handler>::request(const rpc_test_SetProperty_In& in, H&& handler) {
+inline void server_op<Handler>::request(uint32_t rid, const rpc_test_SetProperty_In& in, H&& handler) {
+    BOOST_LOG(lg) << "received a SetProperty RPC request";
     if (in.has_value) {
         propertyValue = in.value;
     }
@@ -155,17 +171,18 @@ inline void server_op<Handler>::request(const rpc_test_SetProperty_In& in, H&& h
         BOOST_LOG(lg) << "received an invalid SetProperty RPC request";
     }
 
-    this->async_reply(rpc_test_GetProperty_Out{}, std::forward<H>(handler));
+    this->async_write_reply(rid, rpc_test_SetProperty_Out{},
+            composed::discard_results(std::forward<H>(handler)));
 }
 
 template <class Handler>
 template <class H>
-struct server_op<Handler>::reply_op: boost::asio::coroutine {
+struct server_op<Handler>::write_event_op: boost::asio::coroutine {
     using handler_type = H;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
     server_op& self;
-    composed::work_guard<composed::phaser<composed::handler_executor<server_op::handler_type>>> work;
+    composed::work_guard<composed::phaser<server_op::executor_type>> work;
 
     beast::basic_streambuf<allocator_type> buf;
 
@@ -173,34 +190,33 @@ struct server_op<Handler>::reply_op: boost::asio::coroutine {
     boost::system::error_code ec;
 
     template <class T>
-    reply_op(handler_type& h, server_op& s, const T& message)
+    write_event_op(handler_type& h, server_op& s, const T& message)
         : self(s)
         , buf(256, allocator_type(h))
         , lg(composed::get_associated_logger(h))
     {
         auto serverToClient = rpc_test_ServerToClient{};
-        nanopb::assign(serverToClient.arg.rpcReply.arg, message);
-        nanopb::assign(serverToClient.arg, serverToClient.arg.rpcReply);
+        nanopb::assign(serverToClient.arg, message);
         auto success = nanopb::encode(buf, serverToClient);
         BOOST_ASSERT(success);
     }
 
-    void operator()(composed::op<reply_op>& op);
+    void operator()(composed::op<write_event_op>& op);
 };
 
 template <class Handler>
 template <class H>
-void server_op<Handler>::reply_op<H>::
-operator()(composed::op<reply_op>& op) {
+void server_op<Handler>::write_event_op<H>::
+operator()(composed::op<write_event_op>& op) {
     if (!ec) reenter(this) {
         yield return self.write_phaser.dispatch(op());
         work = composed::make_work_guard(self.write_phaser);
         yield return self.ws.async_write(buf.data(), op(ec));
     }
     else {
-        BOOST_LOG(lg) << "reply error: " << ec.message();
+        BOOST_LOG(lg) << "write_event_op error: " << ec.message();
     }
-    op.complete();
+    op.complete(ec);
 }
 
 #include <boost/asio/unyield.hpp>

@@ -8,7 +8,6 @@
 #include <composed/work_guard.hpp>
 #include <composed/phaser.hpp>
 
-#include <beast/core/async_completion.hpp>
 #include <beast/core/handler_alloc.hpp>
 
 #include <boost/asio.hpp>

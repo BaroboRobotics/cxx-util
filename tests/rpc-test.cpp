@@ -79,11 +79,11 @@ struct main_handler {
     }
 };
 
-
 template <class Handler = void()>
 struct main_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
+    using executor_type = composed::handler_executor<handler_type>;
 
     using stream_type = beast::websocket::stream<boost::asio::ip::tcp::socket>;
 
@@ -91,7 +91,7 @@ struct main_op: boost::asio::coroutine {
 
     boost::asio::signal_set trap;
 
-    composed::phaser<composed::handler_executor<handler_type>> phaser;
+    composed::phaser<executor_type> phaser;
     boost::asio::ip::tcp::acceptor acceptor;
     std::list<stream_type/*, allocator_type*/> connections;
     // beast::handler_alloc requires std::allocator_traits usage, but std::list doesn't use
@@ -168,7 +168,13 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
 
         client_stream.next_layer().close();
 
+        BOOST_LOG(lg) << "waiting for main phaser";
         yield return phaser.dispatch(op());
+
+        BOOST_LOG(lg) << "main phaser done";
+        yield return phaser.get_io_service().post(op());
+        // We need to do a final post() because op.complete() will destroy our phaser immediately,
+        // but phaser.dispatch() causes us to hold a work object referencing that phaser.
     }
     op.complete();
 };
