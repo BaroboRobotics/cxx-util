@@ -10,6 +10,8 @@
 #include <composed/op.hpp>
 #include <composed/phaser.hpp>
 
+#include <boost/type_index.hpp>
+
 #include <chrono>
 #include <map>
 
@@ -72,7 +74,6 @@ private:
     struct do_request_op;
 
 public:
-
     void reset() { inner.reset(); }
 
     const RpcReplyType& reply() const {

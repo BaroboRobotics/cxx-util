@@ -20,7 +20,6 @@
 #include <boost/log/attributes/scoped_attribute.hpp>
 
 #include <boost/optional.hpp>
-#include <boost/type_index.hpp>
 
 #include <boost/asio/yield.hpp>
 
