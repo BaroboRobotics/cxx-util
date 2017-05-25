@@ -85,7 +85,7 @@ struct main_op: boost::asio::coroutine {
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using executor_type = composed::handler_executor<handler_type>;
 
-    using stream_type = beast::websocket::stream<boost::asio::ip::tcp::socket>;
+    using stream_type = boost::asio::ip::tcp::socket;
 
     handler_type& handler_context;
 
@@ -163,10 +163,10 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
 
         acceptor.close();
         for (auto& con: connections) {
-            con.next_layer().close();
+            con.close();
         }
 
-        client_stream.next_layer().close();
+        client_stream.close();
 
         BOOST_LOG(lg) << "waiting for main phaser";
         yield return phaser.dispatch(op());

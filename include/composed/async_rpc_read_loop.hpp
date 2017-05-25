@@ -26,7 +26,7 @@ struct rpc_read_loop_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
-    beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
+    beast::websocket::stream<boost::asio::ip::tcp::socket&>& ws;
     beast::websocket::opcode opcode;
     beast::basic_streambuf<allocator_type> buf;
 
@@ -36,7 +36,7 @@ struct rpc_read_loop_op: boost::asio::coroutine {
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;
 
-    rpc_read_loop_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& s,
+    rpc_read_loop_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket&>& s,
             EventProc& ep)
         : ws(s)
         , buf(256, allocator_type(h))
@@ -77,7 +77,7 @@ void rpc_read_loop_op<T, EventProc, Handler>::operator()(composed::op<rpc_read_l
 }
 
 template <class T, class EventProc, class Token>
-auto async_rpc_read_loop(beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
+auto async_rpc_read_loop(beast::websocket::stream<boost::asio::ip::tcp::socket&>& stream,
         EventProc& event_processor, Token&& token) {
     return composed::operation<rpc_read_loop_op<T, EventProc>>{}(
             stream, event_processor, std::forward<Token>(token));

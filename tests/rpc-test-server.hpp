@@ -37,7 +37,7 @@ struct server_op: boost::asio::coroutine {
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
-    beast::websocket::stream<boost::asio::ip::tcp::socket>& ws;
+    beast::websocket::stream<boost::asio::ip::tcp::socket&> ws;
     composed::phaser<executor_type> write_phaser;
 
     float propertyValue = 1.0;
@@ -45,7 +45,7 @@ struct server_op: boost::asio::coroutine {
     mutable util::log::Logger lg;
     boost::system::error_code ec;
 
-    server_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& stream,
+    server_op(handler_type& h, boost::asio::ip::tcp::socket& stream,
             boost::asio::ip::tcp::endpoint remote_ep)
         : ws(stream)
         , write_phaser(stream.get_io_service(), h)

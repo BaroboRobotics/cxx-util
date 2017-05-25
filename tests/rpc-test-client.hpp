@@ -39,7 +39,7 @@ struct client_op: public boost::asio::coroutine,
     composed::phaser<executor_type> read_loop_phaser;
 
     composed::phased_stream<
-            executor_type, beast::websocket::stream<boost::asio::ip::tcp::socket>> stream;
+            executor_type, beast::websocket::stream<boost::asio::ip::tcp::socket&>> stream;
 
     boost::asio::ip::tcp::endpoint remote_ep;
     typename client_op::client_base_type::transaction rpc;
@@ -48,10 +48,10 @@ struct client_op: public boost::asio::coroutine,
     boost::system::error_code ec;
     boost::system::error_code reply_ec;
 
-    client_op(handler_type& h, beast::websocket::stream<boost::asio::ip::tcp::socket>& s,
+    client_op(handler_type& h, boost::asio::ip::tcp::socket& s,
             boost::asio::ip::tcp::endpoint ep)
-        : stream(s, h)
-        , read_loop_phaser(s.get_io_service(), h)
+        : read_loop_phaser(s.get_io_service(), h)
+        , stream(h, s)
         , remote_ep(ep)
         , rpc(*this)
     {

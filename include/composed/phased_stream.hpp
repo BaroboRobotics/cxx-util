@@ -28,13 +28,13 @@ namespace composed {
 
 template <class Executor, class AsyncStream>
 struct phased_stream {
-    // Guarantees that concurrent calls to async_write() will not interfere with each other.
+    // Serializes concurrent calls to async_write(), i.e., it puts each call in a separate phase.
 
 public:
-    phased_stream(AsyncStream& s,
-            typename Executor::handler_type& h)
-        : write_phaser(s.get_io_service(), h)
-        , stream(s)
+    template <class... Args>
+    phased_stream(typename Executor::handler_type& h, Args&&... args)
+        : stream(std::forward<Args>(args)...)
+        , write_phaser(stream.get_io_service(), h)
     {}
 
 private:
@@ -51,8 +51,8 @@ public:
     }
 
 private:
+    AsyncStream stream;
     composed::phaser<Executor> write_phaser;
-    AsyncStream& stream;
 };
 
 template <class Executor, class AsyncStream>
