@@ -8,16 +8,14 @@
 
 #include <composed/op.hpp>
 
-#include <boost/asio/ip/tcp.hpp>
-
 #include <boost/asio/yield.hpp>
 
 #include <utility>
 
 namespace composed {
 
-template <class LoopBody, class Token>
-auto async_accept_loop(boost::asio::ip::tcp::acceptor& a, LoopBody&& f, Token&& token);
+template <class Acceptor, class LoopBody, class Token>
+auto async_accept_loop(Acceptor& a, LoopBody&& f, Token&& token);
 // Continuously accept new connections, passing them to the user by `f(std::move(s), ep)`, where:
 //   - `s` is a newly bound socket
 //   - `ep` is the remote endpoint connected to that socket
@@ -30,11 +28,11 @@ auto async_accept_loop(boost::asio::ip::tcp::acceptor& a, LoopBody&& f, Token&& 
 
 // =======================================================================================
 
-template <class LoopBody, class Handler = void(boost::system::error_code)>
+template <class Acceptor, class LoopBody, class Handler = void(boost::system::error_code)>
 struct accept_loop_op: boost::asio::coroutine {
     using handler_type = Handler;
 
-    accept_loop_op(handler_type&, boost::asio::ip::tcp::acceptor& a, LoopBody f)
+    accept_loop_op(handler_type&, Acceptor& a, LoopBody f)
         : acceptor(a)
         , stream(a.get_io_service())
         , loop_body(std::move(f))
@@ -42,18 +40,18 @@ struct accept_loop_op: boost::asio::coroutine {
 
     void operator()(composed::op<accept_loop_op>&);
 
-    boost::asio::ip::tcp::acceptor& acceptor;
+    Acceptor& acceptor;
 
-    boost::asio::ip::tcp::socket stream;
-    boost::asio::ip::tcp::endpoint remoteEp;
+    typename Acceptor::protocol_type::socket stream;
+    typename Acceptor::protocol_type::endpoint remoteEp;
 
     LoopBody loop_body;
 
     boost::system::error_code ec;
 };
 
-template <class LoopBody, class Handler>
-void accept_loop_op<LoopBody, Handler>::operator()(composed::op<accept_loop_op>& op) {
+template <class Acceptor, class LoopBody, class Handler>
+void accept_loop_op<Acceptor, LoopBody, Handler>::operator()(composed::op<accept_loop_op>& op) {
     reenter(this) {
         yield return acceptor.async_accept(stream, remoteEp, op(ec));
         while (!ec) {
@@ -65,9 +63,9 @@ void accept_loop_op<LoopBody, Handler>::operator()(composed::op<accept_loop_op>&
     op.complete(ec);
 }
 
-template <class LoopBody, class Token>
-auto async_accept_loop(boost::asio::ip::tcp::acceptor& a, LoopBody&& f, Token&& token) {
-    return composed::async_run<accept_loop_op<std::decay_t<LoopBody>>>(
+template <class Acceptor, class LoopBody, class Token>
+auto async_accept_loop(Acceptor& a, LoopBody&& f, Token&& token) {
+    return composed::async_run<accept_loop_op<Acceptor, std::decay_t<LoopBody>>>(
             a, std::forward<LoopBody>(f), std::forward<Token>(token));
 }
 
