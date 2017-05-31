@@ -6,6 +6,7 @@
 #ifndef UTIL_ASIO_SERIALPORT_HPP
 #define UTIL_ASIO_SERIALPORT_HPP
 
+#include <util/asio/setserialportoptions.hpp>
 #include <util/asio/operation.hpp>
 #include <util/log.hpp>
 
