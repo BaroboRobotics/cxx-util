@@ -8,8 +8,11 @@
 // asynchronous function, async_write, which writes a message to the next layer in such a way that
 // concurrent writes (from the same thread, at least) are safe.
 
-#ifndef COMPOSED_ASYNC_WRITE_HPP
-#define COMPOSED_ASYNC_WRITE_HPP
+// In retrospect, this is not nearly as useful as I was hoping, since SFP streams are already
+// phased, since their reads may interfere with their writes. Ugggh.
+
+#ifndef COMPOSED_PHASED_STREAM_HPP
+#define COMPOSED_PHASED_STREAM_HPP
 
 #include <composed/phaser.hpp>
 #include <composed/op.hpp>
@@ -83,35 +86,6 @@ struct phased_stream<Executor, AsyncStream>::write_event_op: boost::asio::corout
     void operator()(composed::op<write_event_op>& op);
 };
 
-namespace _ {
-
-template <class AsyncStream>
-struct write_helper;
-// Different Asio-compatible stream-like types have different functions to write one whole message.
-// This write_helper type contains one static member function, async_write, which calls the
-// appropriate function.
-
-template <class AsyncStream>
-struct write_helper {
-    template <class ConstBufferSequence, class Token>
-    static auto async_write(AsyncStream& stream, const ConstBufferSequence& buf, Token&& token) {
-        // By default, we can just use boost::asio::async_write.
-        return boost::asio::async_write(stream, buf, std::forward<Token>(token));
-    }
-};
-
-template <class T>
-struct write_helper<beast::websocket::stream<T>> {
-    template <class ConstBufferSequence, class Token>
-    static auto async_write(beast::websocket::stream<T>& stream, 
-            const ConstBufferSequence& buf, Token&& token) {
-        // Beast websocket streams have their own member function for writing one whole message.
-        return stream.async_write(buf, std::forward<Token>(token));
-    }
-};
-
-}  // _
-
 template <class Executor, class AsyncStream>
 template <class Handler>
 void phased_stream<Executor, AsyncStream>::
@@ -120,7 +94,7 @@ operator()(composed::op<write_event_op>& op) {
     if (!ec) reenter(this) {
         yield return self.write_phaser.dispatch(op());
         work = composed::make_work_guard(self.write_phaser);
-        yield return _::write_helper<AsyncStream>::async_write(self.stream, buf.data(), op(ec));
+        yield return self.stream.async_write(buf.data(), op(ec));
     }
     else {
         BOOST_LOG(lg) << "write_event_op error: " << ec.message();
