@@ -184,7 +184,7 @@ struct server_op<Handler>::write_event_op: boost::asio::coroutine {
     server_op& self;
     composed::work_guard<composed::phaser<server_op::executor_type>> work;
 
-    beast::basic_streambuf<allocator_type> buf;
+    beast::basic_multi_buffer<allocator_type> buf;
 
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;

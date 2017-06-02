@@ -109,20 +109,24 @@ public:
     handler_type& original () const { return d.handler(); }
 
     friend void* asio_handler_allocate (size_t size, signalled_wait_handler* self) {
-        return beast_asio_helpers::allocate(size, self->original());
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->original());
     }
 
     friend void asio_handler_deallocate (void* pointer, size_t size, signalled_wait_handler* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->original());
+        using boost::asio::asio_handler_allocate;
+        asio_handler_deallocate(pointer, size, &self->original());
     }
 
     template <class Function>
     friend void asio_handler_invoke (Function&& f, signalled_wait_handler* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), self->original());
+        using boost::asio::asio_handler_allocate;
+        asio_handler_invoke(std::forward<Function>(f), &self->original());
     }
 
     friend bool asio_handler_is_continuation (signalled_wait_handler* self) {
-        return beast_asio_helpers::is_continuation(self->original());
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_is_continuation(&self->original());
     }
 
     using logger_type = associated_logger_t<handler_type>;
@@ -175,20 +179,24 @@ public:
     handler_type& original () const { return d.handler(); }
 
     friend void* asio_handler_allocate (size_t size, signalled_handler* self) {
-        return beast_asio_helpers::allocate(size, self->original());
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->original());
     }
 
     friend void asio_handler_deallocate (void* pointer, size_t size, signalled_handler* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->original());
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &self->original());
     }
 
     template <class Function>
     friend void asio_handler_invoke (Function&& f, signalled_handler* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), self->original());
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(f), &self->original());
     }
 
     friend bool asio_handler_is_continuation (signalled_handler* self) {
-        return beast_asio_helpers::is_continuation(self->original());
+        using boost::asio::asio_handler_is_continuation;
+        return asio_handler_is_continuation(&self->original());
     }
 
     using logger_type = associated_logger_t<handler_type>;

@@ -16,7 +16,6 @@
 #include <composed/stdlib.hpp>
 #include <composed/work_guard.hpp>
 
-#include <beast/core/handler_helpers.hpp>
 #include <beast/core/handler_ptr.hpp>
 
 #include <boost/asio/strand.hpp>
@@ -138,7 +137,8 @@ auto phaser<Executor>::make_phase(Handler&& h) {
         if (timer.expires_at() == time_point::min()) {
             //BOOST_LOG(lg) << "dispatch invokes immediately";
             auto rh = make_ready_handler(std::move(h));
-            beast_asio_helpers::invoke(rh, rh);
+            using boost::asio::asio_handler_invoke;
+            asio_handler_invoke(rh, &rh);
         }
         else {
             //BOOST_LOG(lg) << "dispatch defers";
@@ -161,20 +161,24 @@ struct phaser<Executor>::ready_handler {
     logger_type get_logger() const { return get_associated_logger(h); }
 
     friend void* asio_handler_allocate(size_t size, ready_handler* self) {
-        return beast_asio_helpers::allocate(size, self->h);
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->h);
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, ready_handler* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->h);
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &self->h);
     }
 
     template <class Function>
     friend void asio_handler_invoke(Function&& f, ready_handler* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), self->h);
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(f), &self->h);
     }
 
     friend bool asio_handler_is_continuation(ready_handler* self) {
-        return beast_asio_helpers::is_continuation(self->h);
+        using boost::asio::asio_handler_is_continuation;
+        return asio_handler_is_continuation(&self->h);
     }
 };
 
@@ -192,27 +196,31 @@ struct phaser<Executor>::wait_handler {
 
     void operator()(const boost::system::error_code& = {}) {
         auto rh = parent.make_ready_handler(std::move(h));
-        beast_asio_helpers::invoke(rh, rh);
+        asio_handler_invoke(rh, &rh);
     }
 
     using logger_type = associated_logger_t<Handler>;
     logger_type get_logger() const { return get_associated_logger(h); }
 
     friend void* asio_handler_allocate(size_t size, wait_handler* self) {
-        return beast_asio_helpers::allocate(size, self->h);
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->h);
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, wait_handler* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->h);
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &self->h);
     }
 
     template <class Function>
     friend void asio_handler_invoke(Function&& f, wait_handler* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), self->h);
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(f), &self->h);
     }
 
     friend bool asio_handler_is_continuation(wait_handler* self) {
-        return beast_asio_helpers::is_continuation(self->h);
+        using boost::asio::asio_handler_is_continuation;
+        return asio_handler_is_continuation(&self->h);
     }
 };
 

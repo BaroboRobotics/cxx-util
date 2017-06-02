@@ -20,7 +20,7 @@
 #include <pb.hpp>
 
 #include <beast/core/handler_alloc.hpp>
-#include <beast/core/streambuf.hpp>
+#include <beast/core/multi_buffer.hpp>
 #include <beast/websocket/stream.hpp>
 
 #include <boost/asio.hpp>
@@ -68,7 +68,7 @@ struct phased_stream<Executor, AsyncStream>::write_event_op: boost::asio::corout
 
     composed::work_guard<composed::phaser<Executor>> work;
 
-    beast::basic_streambuf<allocator_type> buf;
+    beast::basic_multi_buffer<allocator_type> buf;
 
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;

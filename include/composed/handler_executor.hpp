@@ -8,8 +8,6 @@
 
 #include <composed/handler_context.hpp>
 
-#include <beast/core/handler_helpers.hpp>
-
 #include <boost/asio/io_service.hpp>
 
 #include <utility>
@@ -32,7 +30,8 @@ public:
 
     template <class CompletionHandler>
     void dispatch(CompletionHandler&& ch) const {
-        beast_asio_helpers::invoke(std::forward<CompletionHandler>(ch), handler);
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<CompletionHandler>(ch), &handler);
     }
 
 private:

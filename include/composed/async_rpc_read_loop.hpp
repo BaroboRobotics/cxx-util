@@ -28,7 +28,7 @@ struct rpc_read_loop_op: boost::asio::coroutine {
 
     beast::websocket::stream<boost::asio::ip::tcp::socket&>& ws;
     beast::websocket::opcode opcode;
-    beast::basic_streambuf<allocator_type> buf;
+    beast::basic_multi_buffer<allocator_type> buf;
 
     T message;
     EventProc& event_processor;

@@ -16,8 +16,6 @@
 
 #include <composed/associated_logger.hpp>
 
-#include <beast/core/handler_helpers.hpp>
-
 #include <type_traits>
 #include <utility>
 
@@ -37,20 +35,24 @@ struct handler_context_binder {
     logger_type get_logger() const { return get_associated_logger(handler_context); }
 
     friend void* asio_handler_allocate(size_t size, handler_context_binder* self) {
-        return beast_asio_helpers::allocate(size, self->handler_context);
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->handler_context);
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, handler_context_binder* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->handler_context);
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &self->handler_context);
     }
 
     template <class Function>
     friend void asio_handler_invoke(Function&& function, handler_context_binder* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(function), self->handler_context);
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(function), &self->handler_context);
     }
 
     friend bool asio_handler_is_continuation(handler_context_binder* self) {
-        return beast_asio_helpers::is_continuation(self->handler_context);
+        using boost::asio::asio_handler_is_continuation;
+        return asio_handler_is_continuation(&self->handler_context);
     }
 };
 

@@ -23,20 +23,24 @@ struct discard_results_handler {
     logger_type get_logger() const { return get_associated_logger(h); }
 
     friend void* asio_handler_allocate(size_t size, discard_results_handler* self) {
-        return beast_asio_helpers::allocate(size, self->h);
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->h);
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, discard_results_handler* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->h);
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &self->h);
     }
 
     template <class Function>
     friend void asio_handler_invoke(Function&& f, discard_results_handler* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), self->h);
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(f), &self->h);
     }
 
     friend bool asio_handler_is_continuation(discard_results_handler* self) {
-        return beast_asio_helpers::is_continuation(self->h);
+        using boost::asio::asio_handler_is_continuation;
+        return asio_handler_is_continuation(&self->h);
     }
 
 };

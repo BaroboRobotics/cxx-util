@@ -55,7 +55,8 @@ struct main_handler {
 
         // Forward to the default implementation of asio_handler_allocate.
         int dummy;
-        return beast_asio_helpers::allocate(size, dummy);
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &dummy);
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, main_handler* self) {
@@ -64,14 +65,16 @@ struct main_handler {
 
         // Forward to the default implementation of asio_handler_deallocate.
         int dummy;
-        beast_asio_helpers::deallocate(pointer, size, dummy);
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &dummy);
     }
 
     template <class Function>
     friend void asio_handler_invoke(Function&& function, main_handler* self) {
         // Forward to the default implementation of asio_handler_invoke.
         int dummy;
-        beast_asio_helpers::invoke(std::forward<Function>(function), dummy);
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(function), &dummy);
     }
 
     friend bool asio_handler_is_continuation(main_handler* self) {

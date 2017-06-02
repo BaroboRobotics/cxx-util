@@ -12,7 +12,6 @@
 #include <composed/phased_stream.hpp>
 
 #include <beast/websocket.hpp>
-#include <beast/core/async_completion.hpp>
 #include <beast/core/bind_handler.hpp>
 #include <beast/core/handler_alloc.hpp>
 #include <boost/asio.hpp>

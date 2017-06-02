@@ -20,7 +20,6 @@
 #include <composed/stdlib.hpp>
 #include <composed/handler_context.hpp>
 
-#include <beast/core/handler_helpers.hpp>
 #include <beast/core/handler_ptr.hpp>
 
 #include <boost/assert.hpp>
@@ -140,16 +139,19 @@ private:
     // Handler hooks
 
     friend void* asio_handler_allocate(size_t size, op_continuation* self) {
-        return beast_asio_helpers::allocate(size, self->task.handler());
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->task.handler());
     }
 
     friend void asio_handler_deallocate(void* pointer, size_t size, op_continuation* self) {
-        beast_asio_helpers::deallocate(pointer, size, self->task.handler());
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &self->task.handler());
     }
 
     template <class Function>
     friend void asio_handler_invoke(Function&& f, op_continuation* self) {
-        beast_asio_helpers::invoke(std::forward<Function>(f), self->task.handler());
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(f), &self->task.handler());
     }
 
     friend bool asio_handler_is_continuation(op_continuation* self) {
@@ -229,7 +231,8 @@ void start_op(Handler&& handler, Args&&... args) {
             "Attempt to start op with incompatible handler");
     static_assert(!std::is_same<Task, Handler>::value, "this is a terrible idea");
 
-    auto cont = beast_asio_helpers::is_continuation(handler);
+    using boost::asio::asio_handler_is_continuation;
+    auto cont = asio_handler_is_continuation(&handler);
 
     auto p = beast::handler_ptr<Task, Handler>{
             std::forward<Handler>(handler), std::forward<Args>(args)...};

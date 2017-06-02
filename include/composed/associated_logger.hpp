@@ -8,8 +8,6 @@
 
 #include <composed/stdlib.hpp>
 
-#include <beast/core/handler_helpers.hpp>
-
 #include <boost/log/attributes/constant.hpp>
 #include <boost/log/keywords/channel.hpp>
 #include <boost/log/sources/severity_channel_logger.hpp>

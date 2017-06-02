@@ -66,7 +66,8 @@ struct test_handler {
     friend void* asio_handler_allocate(size_t size, test_handler* self) {
         // Forward to the default implementation of asio_handler_allocate.
         int dummy;
-        auto p = beast_asio_helpers::allocate(size, dummy);
+        using boost::asio::asio_handler_allocate;
+        auto p = asio_handler_allocate(size, &dummy);
 
         bool inserted;
         std::tie(std::ignore, inserted) = self->d->allocation_table.insert(std::make_pair(p, size));
@@ -93,7 +94,8 @@ struct test_handler {
 
         // Forward to the default implementation of asio_handler_deallocate.
         int dummy;
-        beast_asio_helpers::deallocate(pointer, size, dummy);
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &dummy);
     }
 
     template <class Function>
@@ -105,7 +107,8 @@ struct test_handler {
 
         // Forward to the default implementation of asio_handler_invoke.
         int dummy;
-        beast_asio_helpers::invoke(std::forward<Function>(function), dummy);
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(function), &dummy);
     }
 
     friend bool asio_handler_is_continuation(test_handler* self) {
