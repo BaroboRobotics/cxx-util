@@ -130,7 +130,6 @@ public:
         if (!d->done) {
             d->done = true;
             BOOST_ASSERT(!ec);
-            BOOST_LOG(d->lg) << "Timed out";
             std::get<0>(d->result) = boost::asio::error::timed_out;
             d->io_object.cancel();
         }
