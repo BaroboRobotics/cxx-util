@@ -46,8 +46,8 @@ auto timed(IoObject& io_object, const boost::asio::steady_timer::time_point& tp,
 // operation and the wait operation have both completed (or been cancelled).
 //
 // There are three important caveats to this utility:
-//   1. The IoObject whose operation is being timed MUST be protected by an explicit strand, or its
-//      `io_service` context MUST have `run()` called on it from only one thread at a time. This is
+//   1. The IoObject whose operation is being timed MUST be protected by an explicit strand, or an
+//      implicit one by dint of calling `io_service::run()` from only one thread at a time. This is
 //      required because of the concurrent nature of the composed operation that the timed token
 //      creates: it has no single chain of asynchronous operations, but a DAG of operations.
 //
@@ -61,8 +61,8 @@ auto timed(IoObject& io_object, const boost::asio::steady_timer::time_point& tp,
 //      `post()`ing the completion handler an extra time. This is necessary to ensure that the timer
 //      object in the implementation is cleaned up and deallocated before final completion. On
 //      high-level operations this overhead will be negligible. On low-level, low-latency
-//      operations, this overhead could end being noticable. In general, prefer to time high-level
-//      operations.
+//      operations, this overhead could end up being noticable. In general, prefer to time high-
+//      level operations.
 
 template <class IoObject, class Token>
 auto timed(IoObject& io_object, const boost::asio::steady_timer::duration& dur, Token&& token);
@@ -267,6 +267,6 @@ struct handler_type<::composed::timed_token<IoObject, Token>, Signature> {
     using type = ::composed::timed_handler<IoObject, Token, Signature>;
 };
 
-}} // namespace boost::asio
+}} // boost::asio
 
 #endif
