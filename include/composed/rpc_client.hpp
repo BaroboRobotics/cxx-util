@@ -10,6 +10,8 @@
 #include <composed/op.hpp>
 #include <composed/phaser.hpp>
 
+#include <boost/log/attributes/scoped_attribute.hpp>
+
 #include <boost/type_index.hpp>
 
 #include <chrono>
