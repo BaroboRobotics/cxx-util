@@ -20,7 +20,7 @@
 #include <pb.hpp>
 
 #include <beast/core/handler_alloc.hpp>
-#include <beast/core/multi_buffer.hpp>
+#include <beast/core/flat_buffer.hpp>
 #include <beast/websocket/stream.hpp>
 
 #include <boost/asio.hpp>
@@ -68,7 +68,10 @@ struct phased_stream<Executor, AsyncStream>::write_event_op: boost::asio::corout
 
     composed::work_guard<composed::phaser<Executor>> work;
 
-    beast::basic_multi_buffer<allocator_type> buf;
+    beast::basic_flat_buffer<allocator_type> buf;
+    // We use a flat buffer because SFP streams require a `const_buffer` argument to `async_write`.
+    // When the SFP implementations loosens this requirement to a `ConstBufferSequence`, it'd be
+    // good to go back to a multi buffer.
 
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;
@@ -76,7 +79,7 @@ struct phased_stream<Executor, AsyncStream>::write_event_op: boost::asio::corout
     template <class T>
     write_event_op(handler_type& h, phased_stream& s, const T& message)
         : self(s)
-        , buf(256, allocator_type(h))
+        , buf(allocator_type(h))
         , lg(composed::get_associated_logger(h))
     {
         auto success = nanopb::encode(buf, message);
