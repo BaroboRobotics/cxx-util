@@ -300,7 +300,7 @@ auto async_run_impl(ArgTuple&& t, index_sequence<Indices...>) {
     using task_type = _::transform_task_t<Task, token_type>;
     using handler_type = typename task_type::handler_type;
 
-    auto handler = handler_type{std::forward<decltype(token)>(token)};
+    auto handler = handler_type(std::forward<decltype(token)>(token));
     auto result = boost::asio::async_result<handler_type>{handler};
 
     start_op<task_type>(std::move(handler), std::get<Indices>(std::forward<ArgTuple>(t))...);
