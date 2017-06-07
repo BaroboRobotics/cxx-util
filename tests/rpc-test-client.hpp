@@ -8,7 +8,7 @@
 
 #include <composed/op.hpp>
 #include <composed/rpc_client.hpp>
-#include <composed/phased_stream.hpp>
+#include <composed/rpc_stream.hpp>
 
 #include <beast/websocket.hpp>
 #include <beast/core/bind_handler.hpp>

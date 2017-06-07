@@ -13,7 +13,7 @@
 #include <composed/op.hpp>
 #include <composed/phaser.hpp>
 #include <composed/work_guard.hpp>
-#include <composed/phased_stream.hpp>
+#include <composed/rpc_stream.hpp>
 #include <composed/handler_executor.hpp>
 #include <composed/discard_results.hpp>
 
