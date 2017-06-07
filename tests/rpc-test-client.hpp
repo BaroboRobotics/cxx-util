@@ -7,7 +7,6 @@
 #include <util/log.hpp>
 
 #include <composed/op.hpp>
-#include <composed/async_rpc_read_loop.hpp>
 #include <composed/rpc_client.hpp>
 #include <composed/phased_stream.hpp>
 
@@ -35,10 +34,8 @@ struct client_op: public boost::asio::coroutine,
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
-    composed::phaser<executor_type> read_loop_phaser;
-
-    composed::phased_stream<
-            executor_type, beast::websocket::stream<boost::asio::ip::tcp::socket&>> stream;
+    composed::websocket<executor_type> ws;
+    composed::rpc_stream<composed::websocket<executor_type>&, rpc_test_ServerToClient> stream;
 
     boost::asio::ip::tcp::endpoint remote_ep;
     typename client_op::client_base_type::transaction rpc;
@@ -49,8 +46,8 @@ struct client_op: public boost::asio::coroutine,
 
     client_op(handler_type& h, boost::asio::ip::tcp::socket& s,
             boost::asio::ip::tcp::endpoint ep)
-        : read_loop_phaser(s.get_io_service(), h)
-        , stream(h, s)
+        : ws(h, s)
+        , stream(ws)
         , remote_ep(ep)
         , rpc(*this)
     {
@@ -85,30 +82,25 @@ struct client_op: public boost::asio::coroutine,
 template <class Handler>
 void client_op<Handler>::operator()(composed::op<client_op>& op) {
     if (!ec) reenter(this) {
-        yield return stream.next_layer().next_layer().async_connect(remote_ep, op(ec));
-        yield return stream.next_layer().async_handshake(
+        yield return stream.next_layer().next_layer().next_layer().async_connect(remote_ep, op(ec));
+        yield return stream.next_layer().next_layer().async_handshake(
                 "hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
 
         BOOST_LOG(lg) << "WebSocket connected";
 
-        stream.next_layer().set_option(
+        stream.next_layer().next_layer().set_option(
                 beast::websocket::message_type{beast::websocket::opcode::binary});
 
-        {
-            auto cleanup = op.wrap(
-                    [this, work = make_work_guard(read_loop_phaser)](const boost::system::error_code& ec) {
-                        if (ec == beast::websocket::error::closed) {
-                            BOOST_LOG(lg) << "WebSocket closed, remote code/reason: "
-                                    << stream.next_layer().reason().code << '/'
-                                    << stream.next_layer().reason().reason.c_str();
-                        }
-                        else {
-                            BOOST_LOG(lg) << "read loop error: " << ec.message();
-                        }
-                    });
-            composed::async_rpc_read_loop<rpc_test_ServerToClient>(
-                    stream.next_layer(), *this, std::move(cleanup));
-        }
+        stream.async_run_read_loop(*this, op.wrap([this](const boost::system::error_code& ec) {
+            if (ec == beast::websocket::error::closed) {
+                BOOST_LOG(lg) << "read loop stopped because remote closed WebSocket: "
+                        << stream.next_layer().next_layer().reason().code << '/'
+                        << stream.next_layer().next_layer().reason().reason.c_str();
+            }
+            else {
+                BOOST_LOG(lg) << "read loop error: " << ec.message();
+            }
+        }));
 
         yield return async_write_event(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";
@@ -141,12 +133,11 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         }
 
         BOOST_LOG(lg) << "closing connection";
-        yield return stream.next_layer().async_close({"Hodor!"}, op(std::ignore));
+        yield return stream.next_layer().next_layer().async_close({"Hodor!"}, op(std::ignore));
 
         BOOST_LOG(lg) << "waiting for read loop";
-        yield return read_loop_phaser.dispatch(op());
+        yield return stream.async_stop_read_loop(op(ec));
         BOOST_LOG(lg) << "read loop done, client op exiting";
-        yield return read_loop_phaser.get_io_service().post(op());
     }
     else {
         BOOST_LOG(lg) << "error: " << ec.message();

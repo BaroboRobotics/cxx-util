@@ -90,6 +90,9 @@ boost::log::formatter defaultFormatter () {
         << expr::if_(expr::has_attr<std::string>("RequestId"))[
             expr::stream << " [RequestId=" << expr::attr<std::string>("RequestId") << "]"
         ]
+        << expr::if_(expr::has_attr<std::string>("RequestName"))[
+            expr::stream << " [" << expr::attr<std::string>("RequestName") << "]"
+        ]
         << " " << expr::smessage;
 }
 

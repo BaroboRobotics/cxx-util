@@ -28,6 +28,8 @@
 
 #include <composed/associated_logger.hpp>
 
+#include <beast/core/async_result.hpp>
+
 namespace composed {
 
 // =======================================================================================
