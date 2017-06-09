@@ -75,17 +75,12 @@ private:
     void request(uint32_t rid, const rpc_test_SetProperty_In& in, H&& handler);
 
     template <class T, class Token>
-    auto async_write_event(const T& message, Token&& token) {
-        return stream.async_write(message, std::forward<Token>(token));
-    }
-
-    template <class T, class Token>
     auto async_write_reply(uint32_t rid, const T& message, Token&& token) {
         auto reply = rpc_test_RpcReply{};
         reply.has_requestId = true;
         reply.requestId = rid;
         nanopb::assign(reply.arg, message);
-        return async_write_event(reply, std::forward<Token>(token));
+        return stream.async_write(reply, std::forward<Token>(token));
     }
 };
 
@@ -98,10 +93,9 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         yield return stream.next_layer().next_layer().async_accept(op(ec));
 
         BOOST_LOG(lg) << "WebSocket accepted";
-
         stream.next_layer().next_layer().set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
 
-        yield return async_write_event(rpc_test_Quux{}, op(ec));
+        yield return stream.async_write(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";
 
         yield return stream.async_run_read_loop(*this, op(ec));
