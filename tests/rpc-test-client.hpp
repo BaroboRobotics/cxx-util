@@ -25,8 +25,7 @@
 // Client operation
 
 template <class Handler = void()>
-struct client_op: public boost::asio::coroutine,
-        public composed::rpc_client<client_op<Handler>, rpc_test_RpcRequest, rpc_test_RpcReply> {
+struct client_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
     using executor_type = composed::handler_executor<handler_type>;
@@ -35,10 +34,12 @@ struct client_op: public boost::asio::coroutine,
     logger_type get_logger() const { return &lg; }
 
     composed::websocket<executor_type> ws;
-    composed::rpc_stream<composed::websocket<executor_type>&, rpc_test_ServerToClient> stream;
+    composed::rpc_stream<composed::websocket<executor_type>&,
+            rpc_test_ClientToServer, rpc_test_ServerToClient> stream;
+    composed::rpc_client<decltype(stream), rpc_test_RpcRequest, rpc_test_RpcReply> client;
+    typename decltype(client)::transactor rpc;
 
     boost::asio::ip::tcp::endpoint remote_ep;
-    typename client_op::client_base_type::transaction rpc;
 
     mutable util::log::Logger lg;
     boost::system::error_code ec;
@@ -48,34 +49,25 @@ struct client_op: public boost::asio::coroutine,
             boost::asio::ip::tcp::endpoint ep)
         : ws(h, s)
         , stream(ws)
+        , client(stream)
+        , rpc(client)
         , remote_ep(ep)
-        , rpc(*this)
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("client"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remote_ep));
     }
-
-    boost::asio::io_service& get_io_service() { return stream.get_io_service(); }
-    // Needed by composed::rpc_client CRTP base.
 
     void operator()(composed::op<client_op>&);
 
     // ===================================================================================
     // Event messages
 
-    using typename client_op::client_base_type::event;
-    // We need to manually pull our client base's event overload into our class namespace,
-    // otherwise our own event overloads will hide it.
-
     template <class H>
     void event(const rpc_test_Quux&, H&& handler);
 
-    template <class T, class Token>
-    auto async_write_event(const T& message, Token&& token) {
-        // Needed by composed::rpc_client CRTP base.
-        auto clientToServer = rpc_test_ClientToServer{};
-        nanopb::assign(clientToServer.arg, message);
-        return stream.async_write(clientToServer, std::forward<Token>(token));
+    template <class H>
+    void event(const rpc_test_RpcReply& e, H&& handler) {
+        client.event(e, std::forward<H>(handler));
     }
 };
 
@@ -102,7 +94,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
             }
         }));
 
-        yield return async_write_event(rpc_test_Quux{}, op(ec));
+        yield return stream.async_write(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";
 
         using namespace std::literals;
@@ -117,8 +109,6 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         else {
             BOOST_LOG(lg) << "SetProperty reply error: " << reply_ec.message();
         }
-
-        rpc.reset();
 
         yield return rpc.async_do_request(
                 rpc_test_GetProperty_In{},

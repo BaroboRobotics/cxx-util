@@ -30,6 +30,250 @@
 
 namespace composed {
 
+// =======================================================================================
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+class rpc_stream {
+    // nanopb::encodes the argument to async_write().
+
+public:
+    template <class... Args>
+    explicit rpc_stream(Args&&... args)
+        : next_layer_(std::forward<Args>(args)...)
+        , strand(next_layer_.get_io_service())
+        , read_phaser(strand)
+    {}
+
+private:
+    template <class EventProcessor, class Handler = void(boost::system::error_code)>
+    struct read_loop_op;
+
+    template <class Handler>
+    struct read_loop_handler;
+
+    template <class Handler>
+    auto make_read_loop_handler(Handler&& handler);
+
+    template <class Handler = void(boost::system::error_code)>
+    struct stop_read_loop_op;
+
+    template <class Handler = void(boost::system::error_code)>
+    struct write_op;
+
+public:
+    boost::asio::io_service& get_io_service() { return next_layer_.get_io_service(); }
+    AsyncStream& next_layer() { return next_layer_; }
+
+    template <class EventProcessor, class Token>
+    auto async_run_read_loop(EventProcessor& processor, Token&& token) {
+        beast::async_completion<Token, void(boost::system::error_code)> init{token};
+
+        BOOST_ASSERT(!read_loop_running);
+        read_loop_running = true;
+
+        composed::operation<read_loop_op<EventProcessor>>{}(
+                *this, processor, make_read_loop_handler(std::move(init.completion_handler)));
+
+        return init.result.get();
+    }
+
+    template <class Token>
+    auto async_stop_read_loop(Token&& token) {
+        return composed::operation<stop_read_loop_op<>>{}(*this, std::forward<Token>(token));
+    }
+
+    template <class T, class Token>
+    auto async_write(const T& message, Token&& token) {
+        auto tx_msg = TxMessageType{};
+        nanopb::assign(tx_msg.arg, message);
+        return composed::operation<write_op<>>{}(*this, tx_msg, std::forward<Token>(token));
+    }
+
+private:
+    AsyncStream next_layer_;
+    boost::asio::io_service::strand strand;
+    composed::phaser<boost::asio::io_service::strand&> read_phaser;
+    RxMessageType message;
+    bool read_loop_running = false;
+};
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class Handler>
+struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::write_op: boost::asio::coroutine {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    rpc_stream& self;
+
+    beast::basic_flat_buffer<allocator_type> buffer;
+    // We use a flat buffer because SFP streams require a `const_buffer` argument to `async_write`.
+    // When the SFP implementations loosens this requirement to a `ConstBufferSequence`, it'd be
+    // good to go back to a multi buffer.
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::system::error_code ec;
+
+    template <class T>
+    write_op(handler_type& h, rpc_stream& s, const T& message)
+        : self(s)
+        , buffer(allocator_type(h))
+        , lg(composed::get_associated_logger(h))
+    {
+        auto success = nanopb::encode(buffer, message);
+        BOOST_ASSERT(success);
+    }
+
+    void operator()(composed::op<write_op>& op);
+};
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class Handler>
+void rpc_stream<AsyncStream, TxMessageType, RxMessageType>::write_op<Handler>::operator()(composed::op<write_op>& op) {
+    if (!ec) reenter(this) {
+        yield return self.next_layer_.async_write(buffer.data(), op(ec));
+    }
+    op.complete(ec);
+}
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class Handler>
+struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_handler {
+    rpc_stream& self;
+    composed::work_guard<composed::phaser<boost::asio::io_service::strand&>> work;
+    Handler handler;
+
+    void operator()(const boost::system::error_code& ec) {
+        self.read_loop_running = false;
+        handler(ec);
+    }
+
+    using logger_type = associated_logger_t<Handler>;
+    logger_type get_logger() const {
+        return get_associated_logger(handler);
+    }
+
+    friend void* asio_handler_allocate(size_t size, read_loop_handler* self) {
+        using boost::asio::asio_handler_allocate;
+        return asio_handler_allocate(size, &self->handler);
+    }
+
+    friend void asio_handler_deallocate(void* pointer, size_t size, read_loop_handler* self) {
+        using boost::asio::asio_handler_deallocate;
+        asio_handler_deallocate(pointer, size, &self->handler);
+    }
+
+    template <class Function>
+    friend void asio_handler_invoke(Function&& f, read_loop_handler* self) {
+        using boost::asio::asio_handler_invoke;
+        asio_handler_invoke(std::forward<Function>(f), &self->handler);
+    }
+
+    friend bool asio_handler_is_continuation(read_loop_handler* self) {
+        return true;
+    }
+};
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class Handler>
+auto rpc_stream<AsyncStream, TxMessageType, RxMessageType>::make_read_loop_handler(Handler&& handler) {
+    return read_loop_handler<std::decay_t<Handler>>{*this, composed::make_work_guard(read_phaser),
+                        std::forward<Handler>(handler)};
+};
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class EventProcessor, class Handler>
+struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op: boost::asio::coroutine {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    rpc_stream& self;
+    beast::basic_multi_buffer<allocator_type> buf;
+
+    EventProcessor& event_processor;
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::system::error_code ec;
+
+    read_loop_op(handler_type& h, rpc_stream& s, EventProcessor& ep)
+        : self(s)
+        , buf(256, allocator_type(h))
+        , event_processor(ep)
+        , lg(composed::get_associated_logger(h))
+    {}
+
+    void operator()(composed::op<read_loop_op>& op);
+};
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class EventProcessor, class Handler>
+void rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op<EventProcessor, Handler>::
+operator()(composed::op<read_loop_op>& op) {
+    if (!ec) reenter(this) {
+        while (self.read_loop_running) {
+            BOOST_LOG(lg) << "Starting rpc read op";
+            yield return self.next_layer_.async_read(buf, op(ec));
+            BOOST_LOG(lg) << "rpc read op complete";
+
+            while (buf.size()) {
+                self.message = {};
+                if (nanopb::decode(buf, self.message)) {
+                    yield {
+                        auto h = op();
+                        auto visitor = [this, h](const auto& x) {
+                            event_processor.event(x, std::move(h));
+                        };
+                        if (!nanopb::visit(visitor, self.message.arg)) {
+                            BOOST_LOG(lg) << "unrecognized message";
+                            self.next_layer_.get_io_service().post(std::move(h));
+                        }
+                        return;
+                    }
+                }
+                else {
+                    BOOST_LOG(lg) << "decoding error";
+                }
+            }
+        }
+    }
+    op.complete(ec);
+}
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class Handler>
+struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::stop_read_loop_op: boost::asio::coroutine {
+    using handler_type = Handler;
+    using allocator_type = beast::handler_alloc<char, handler_type>;
+
+    rpc_stream& self;
+
+    composed::associated_logger_t<handler_type> lg;
+    boost::system::error_code ec;
+
+    stop_read_loop_op(handler_type& h, rpc_stream& s)
+        : self(s)
+        , lg(composed::get_associated_logger(h))
+    {}
+
+    void operator()(composed::op<stop_read_loop_op>& op);
+};
+
+template <class AsyncStream, class TxMessageType, class RxMessageType>
+template <class Handler>
+void rpc_stream<AsyncStream, TxMessageType, RxMessageType>::stop_read_loop_op<Handler>::
+operator()(composed::op<stop_read_loop_op>& op) {
+    reenter(this) {
+        if (self.read_loop_running) {
+            self.read_loop_running = false;
+            self.next_layer_.cancel(ec);
+            yield return self.read_phaser.dispatch(op());
+        }
+        yield return self.read_phaser.get_io_service().post(op());
+    }
+    op.complete(ec);
+}
+
+// =======================================================================================
+
 template <class Executor>
 class websocket {
     // Adapts a beast::websocket::stream to match the interface of sfp::stream. I.e., it:
@@ -103,246 +347,6 @@ void websocket<Executor>::write_op<Handler>::operator()(composed::op<write_op>& 
         yield return self.write_phaser.dispatch(op());
         work = composed::make_work_guard(self.write_phaser);
         yield return self.next_layer_.async_write(buffer, op(ec));
-    }
-    op.complete(ec);
-}
-
-// =======================================================================================
-
-template <class AsyncStream, class RxMessageType>
-class rpc_stream {
-    // nanopb::encodes the argument to async_write().
-
-public:
-    template <class... Args>
-    explicit rpc_stream(Args&&... args)
-        : next_layer_(std::forward<Args>(args)...)
-        , strand(next_layer_.get_io_service())
-        , read_phaser(strand)
-    {}
-
-private:
-    template <class EventProcessor, class Handler = void(boost::system::error_code)>
-    struct read_loop_op;
-
-    template <class Handler>
-    struct read_loop_handler;
-
-    template <class Handler>
-    auto make_read_loop_handler(Handler&& handler);
-
-    template <class Handler = void(boost::system::error_code)>
-    struct stop_read_loop_op;
-
-    template <class Handler = void(boost::system::error_code)>
-    struct write_op;
-
-public:
-    boost::asio::io_service& get_io_service() { return next_layer_.get_io_service(); }
-    AsyncStream& next_layer() { return next_layer_; }
-
-    template <class EventProcessor, class Token>
-    auto async_run_read_loop(EventProcessor& processor, Token&& token) {
-        beast::async_completion<Token, void(boost::system::error_code)> init{token};
-
-        BOOST_ASSERT(!read_loop_running);
-        read_loop_running = true;
-
-        composed::operation<read_loop_op<EventProcessor>>{}(
-                *this, processor, make_read_loop_handler(std::move(init.completion_handler)));
-
-        return init.result.get();
-    }
-
-    template <class Token>
-    auto async_stop_read_loop(Token&& token) {
-        return composed::operation<stop_read_loop_op<>>{}(*this, std::forward<Token>(token));
-    }
-
-    template <class T, class Token>
-    auto async_write(const T& message, Token&& token) {
-        return composed::operation<write_op<>>{}(*this, message, std::forward<Token>(token));
-    }
-
-private:
-    AsyncStream next_layer_;
-    boost::asio::io_service::strand strand;
-    composed::phaser<boost::asio::io_service::strand&> read_phaser;
-    RxMessageType message;
-    bool read_loop_running = false;
-};
-
-template <class AsyncStream, class RxMessageType>
-template <class Handler>
-struct rpc_stream<AsyncStream, RxMessageType>::write_op: boost::asio::coroutine {
-    using handler_type = Handler;
-    using allocator_type = beast::handler_alloc<char, handler_type>;
-
-    rpc_stream& self;
-
-    beast::basic_flat_buffer<allocator_type> buffer;
-    // We use a flat buffer because SFP streams require a `const_buffer` argument to `async_write`.
-    // When the SFP implementations loosens this requirement to a `ConstBufferSequence`, it'd be
-    // good to go back to a multi buffer.
-
-    composed::associated_logger_t<handler_type> lg;
-    boost::system::error_code ec;
-
-    template <class T>
-    write_op(handler_type& h, rpc_stream& s, const T& message)
-        : self(s)
-        , buffer(allocator_type(h))
-        , lg(composed::get_associated_logger(h))
-    {
-        auto success = nanopb::encode(buffer, message);
-        BOOST_ASSERT(success);
-    }
-
-    void operator()(composed::op<write_op>& op);
-};
-
-template <class AsyncStream, class RxMessageType>
-template <class Handler>
-void rpc_stream<AsyncStream, RxMessageType>::write_op<Handler>::operator()(composed::op<write_op>& op) {
-    if (!ec) reenter(this) {
-        yield return self.next_layer_.async_write(buffer.data(), op(ec));
-    }
-    op.complete(ec);
-}
-
-template <class AsyncStream, class RxMessageType>
-template <class Handler>
-struct rpc_stream<AsyncStream, RxMessageType>::read_loop_handler {
-    rpc_stream& self;
-    composed::work_guard<composed::phaser<boost::asio::io_service::strand&>> work;
-    Handler handler;
-
-    void operator()(const boost::system::error_code& ec) {
-        self.read_loop_running = false;
-        handler(ec);
-    }
-
-    using logger_type = associated_logger_t<Handler>;
-    logger_type get_logger() const {
-        return get_associated_logger(handler);
-    }
-
-    friend void* asio_handler_allocate(size_t size, read_loop_handler* self) {
-        using boost::asio::asio_handler_allocate;
-        return asio_handler_allocate(size, &self->handler);
-    }
-
-    friend void asio_handler_deallocate(void* pointer, size_t size, read_loop_handler* self) {
-        using boost::asio::asio_handler_deallocate;
-        asio_handler_deallocate(pointer, size, &self->handler);
-    }
-
-    template <class Function>
-    friend void asio_handler_invoke(Function&& f, read_loop_handler* self) {
-        using boost::asio::asio_handler_invoke;
-        asio_handler_invoke(std::forward<Function>(f), &self->handler);
-    }
-
-    friend bool asio_handler_is_continuation(read_loop_handler* self) {
-        return true;
-    }
-};
-
-template <class AsyncStream, class RxMessageType>
-template <class Handler>
-auto rpc_stream<AsyncStream, RxMessageType>::make_read_loop_handler(Handler&& handler) {
-    return read_loop_handler<std::decay_t<Handler>>{*this, composed::make_work_guard(read_phaser),
-                        std::forward<Handler>(handler)};
-};
-
-template <class AsyncStream, class RxMessageType>
-template <class EventProcessor, class Handler>
-struct rpc_stream<AsyncStream, RxMessageType>::read_loop_op: boost::asio::coroutine {
-    using handler_type = Handler;
-    using allocator_type = beast::handler_alloc<char, handler_type>;
-
-    rpc_stream& self;
-    beast::basic_multi_buffer<allocator_type> buf;
-
-    EventProcessor& event_processor;
-
-    composed::associated_logger_t<handler_type> lg;
-    boost::system::error_code ec;
-
-    read_loop_op(handler_type& h, rpc_stream& s, EventProcessor& ep)
-        : self(s)
-        , buf(256, allocator_type(h))
-        , event_processor(ep)
-        , lg(composed::get_associated_logger(h))
-    {}
-
-    void operator()(composed::op<read_loop_op>& op);
-};
-
-template <class AsyncStream, class RxMessageType>
-template <class EventProcessor, class Handler>
-void rpc_stream<AsyncStream, RxMessageType>::read_loop_op<EventProcessor, Handler>::
-operator()(composed::op<read_loop_op>& op) {
-    if (!ec) reenter(this) {
-        while (self.read_loop_running) {
-            BOOST_LOG(lg) << "Starting rpc read op";
-            yield return self.next_layer_.async_read(buf, op(ec));
-            BOOST_LOG(lg) << "rpc read op complete";
-
-            while (buf.size()) {
-                self.message = {};
-                if (nanopb::decode(buf, self.message)) {
-                    yield {
-                        auto h = op();
-                        auto visitor = [this, h](const auto& x) {
-                            event_processor.event(x, std::move(h));
-                        };
-                        if (!nanopb::visit(visitor, self.message.arg)) {
-                            BOOST_LOG(lg) << "unrecognized message";
-                            self.next_layer_.get_io_service().post(std::move(h));
-                        }
-                        return;
-                    }
-                }
-                else {
-                    BOOST_LOG(lg) << "decoding error";
-                }
-            }
-        }
-    }
-    op.complete(ec);
-}
-
-template <class AsyncStream, class RxMessageType>
-template <class Handler>
-struct rpc_stream<AsyncStream, RxMessageType>::stop_read_loop_op: boost::asio::coroutine {
-    using handler_type = Handler;
-    using allocator_type = beast::handler_alloc<char, handler_type>;
-
-    rpc_stream& self;
-
-    composed::associated_logger_t<handler_type> lg;
-    boost::system::error_code ec;
-
-    stop_read_loop_op(handler_type& h, rpc_stream& s)
-        : self(s)
-        , lg(composed::get_associated_logger(h))
-    {}
-
-    void operator()(composed::op<stop_read_loop_op>& op);
-};
-
-template <class AsyncStream, class RxMessageType>
-template <class Handler>
-void rpc_stream<AsyncStream, RxMessageType>::stop_read_loop_op<Handler>::
-operator()(composed::op<stop_read_loop_op>& op) {
-    reenter(this) {
-        if (self.read_loop_running) {
-            self.read_loop_running = false;
-            self.next_layer_.cancel(ec);
-            yield return self.read_phaser.dispatch(op());
-        }
-        yield return self.read_phaser.get_io_service().post(op());
     }
     op.complete(ec);
 }

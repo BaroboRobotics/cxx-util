@@ -18,7 +18,10 @@
 
 #include <boost/program_options/parsers.hpp>
 
+#include <boost/container/list.hpp>
+
 #include <iostream>
+#include <list>
 #include <memory>
 
 #include <boost/asio/yield.hpp>
@@ -89,6 +92,8 @@ struct main_op: boost::asio::coroutine {
     using executor_type = composed::handler_executor<handler_type>;
 
     using stream_type = boost::asio::ip::tcp::socket;
+    using stream_allocator = typename std::allocator_traits<allocator_type>
+            ::template rebind_alloc<stream_type>;
 
     handler_type& handler_context;
 
@@ -96,9 +101,7 @@ struct main_op: boost::asio::coroutine {
 
     composed::phaser<executor_type> phaser;
     boost::asio::ip::tcp::acceptor acceptor;
-    std::list<stream_type/*, allocator_type*/> connections;
-    // beast::handler_alloc requires std::allocator_traits usage, but std::list doesn't use
-    // std::allocator_traits until gcc-6: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=55409
+    boost::container::list<stream_type, stream_allocator> connections;
 
     boost::asio::ip::tcp::endpoint server_ep;
     stream_type client_stream;
@@ -113,7 +116,7 @@ struct main_op: boost::asio::coroutine {
         , trap(context, SIGINT, SIGTERM)
         , phaser(context, h)
         , acceptor(context, ep)
-        , connections(/*allocator_type{h}*/)
+        , connections(allocator_type{h})
         , server_ep(ep)
         , client_stream(context)
         , lg(composed::get_associated_logger(h))

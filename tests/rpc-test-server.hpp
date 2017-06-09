@@ -38,7 +38,8 @@ struct server_op: boost::asio::coroutine {
     logger_type get_logger() const { return &lg; }
 
     composed::websocket<executor_type> ws;
-    composed::rpc_stream<composed::websocket<executor_type>&, rpc_test_ClientToServer> stream;
+    composed::rpc_stream<composed::websocket<executor_type>&,
+            rpc_test_ServerToClient, rpc_test_ClientToServer> stream;
 
     float propertyValue = 1.0;
 
@@ -75,9 +76,7 @@ private:
 
     template <class T, class Token>
     auto async_write_event(const T& message, Token&& token) {
-        auto serverToClient = rpc_test_ServerToClient{};
-        nanopb::assign(serverToClient.arg, message);
-        return stream.async_write(serverToClient, std::forward<Token>(token));
+        return stream.async_write(message, std::forward<Token>(token));
     }
 
     template <class T, class Token>
