@@ -5,6 +5,7 @@
 #include <pb_asio.hpp>
 
 #include <util/log.hpp>
+#include <util/overload.hpp>
 
 #include <composed/op.hpp>
 #include <composed/rpc_client.hpp>
@@ -64,11 +65,6 @@ struct client_op: boost::asio::coroutine {
 
     template <class H>
     void event(const rpc_test_Quux&, H&& handler);
-
-    template <class H>
-    void event(const rpc_test_RpcReply& e, H&& handler) {
-        client.event(e, std::forward<H>(handler));
-    }
 };
 
 template <class Handler>
@@ -83,16 +79,24 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         stream.next_layer().next_layer().set_option(
                 beast::websocket::message_type{beast::websocket::opcode::binary});
 
-        stream.async_run_read_loop(*this, op.wrap([this](const boost::system::error_code& ec) {
-            if (ec == beast::websocket::error::closed) {
-                BOOST_LOG(lg) << "read loop stopped because remote closed WebSocket: "
-                        << stream.next_layer().next_layer().reason().code << '/'
-                        << stream.next_layer().next_layer().reason().reason.c_str();
-            }
-            else {
-                BOOST_LOG(lg) << "read loop error: " << ec.message();
-            }
-        }));
+        stream.async_run_read_loop(
+                util::overload(
+                        [this](const auto& e, auto&& h) {
+                            this->event(e, std::forward<decltype(h)>(h));
+                        },
+                        [this](const rpc_test_RpcReply& e, auto&& h) {
+                            client.event(e, std::forward<decltype(h)>(h));
+                        }),
+                op.wrap([this](const boost::system::error_code& ec) {
+                    if (ec == beast::websocket::error::closed) {
+                        BOOST_LOG(lg) << "read loop stopped because remote closed WebSocket: "
+                                << stream.next_layer().next_layer().reason().code << '/'
+                                << stream.next_layer().next_layer().reason().reason.c_str();
+                    }
+                    else {
+                        BOOST_LOG(lg) << "read loop error: " << ec.message();
+                    }
+                }));
 
         yield return stream.async_write(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";

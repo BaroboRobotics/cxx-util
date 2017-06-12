@@ -27,11 +27,15 @@ namespace composed {
 template <class RpcStream, class RpcRequestType, class RpcReplyType>
 class rpc_client {
 public:
-    rpc_client(RpcStream& s): stream(s) {}
+    rpc_client(RpcStream& s): next_layer_(s) {}
 
     class transactor;
 
-    boost::asio::io_service& get_io_service() { return stream.get_io_service(); }
+    boost::asio::io_service& get_io_service() { return next_layer_.get_io_service(); }
+    auto& next_layer() { return next_layer_; }
+    const auto& next_layer() const { return next_layer_; }
+    auto& lowest_layer() { return next_layer_.lowest_layer(); }
+    const auto& lowest_layer() const { return next_layer_.lowest_layer(); }
 
     // ===================================================================================
     // Event messages
@@ -40,9 +44,9 @@ public:
     void event(const RpcReplyType& e, Handler&& handler);
 
 private:
-    uint32_t allocate_transaction(composed::future<RpcReplyType>& f) {
+    uint32_t allocate_transaction(composed::future<RpcReplyType>& t) {
         auto id = next_transaction_id++;
-        transactions[id] = &f;
+        transactions[id] = &t;
         return id;
     }
 
@@ -50,7 +54,7 @@ private:
         transactions.erase(id);
     }
 
-    RpcStream& stream;
+    RpcStream& next_layer_;
     std::map<uint32_t, composed::future<RpcReplyType>*> transactions;
     uint32_t next_transaction_id = 0;
 };
@@ -62,7 +66,7 @@ event(const RpcReplyType& e, Handler&& handler) {
     auto lg = get_associated_logger(handler);
     if (!e.has_requestId) {
         BOOST_LOG(lg) << "Received an RPC reply without a request ID";
-        stream.get_io_service().post(std::forward<Handler>(handler));
+        next_layer_.get_io_service().post(std::forward<Handler>(handler));
     }
     else {
         BOOST_LOG_SCOPED_LOGGER_TAG(lg, "RequestId", std::to_string(e.requestId));
@@ -73,7 +77,7 @@ event(const RpcReplyType& e, Handler&& handler) {
             request->second->emplace(e);
         }
 
-        stream.get_io_service().post(std::forward<Handler>(handler));
+        next_layer_.get_io_service().post(std::forward<Handler>(handler));
     }
 }
 
@@ -85,10 +89,10 @@ class rpc_client<RpcStream, RpcRequestType, RpcReplyType>::transactor {
 public:
     explicit transactor(rpc_client& c)
             : client(c)
-            , future_reply(client.stream.get_io_service())
-            //, strand(client.stream.get_io_service())
-            //, phaser(strand)
-            , id_(client.allocate_transaction(future_reply))
+            , transaction(client.next_layer_.get_io_service())
+            , strand(client.next_layer_.get_io_service())
+            , phaser(strand)
+            , id_(client.allocate_transaction(transaction))
     {}
 
     transactor(transactor&&) = delete;
@@ -99,13 +103,18 @@ public:
         client.deallocate_transaction(id_);
     }
 
+    void cancel(boost::system::error_code& ec) {
+        client.next_layer_.next_layer().cancel(ec);
+        transaction.cancel(ec);
+    }
+
 private:
     template <class Handler = void(boost::system::error_code)>
     struct do_request_op;
 
     void reallocate() {
         client.deallocate_transaction(id_);
-        id_ = client.allocate_transaction(future_reply);
+        id_ = client.allocate_transaction(transaction);
     }
 
 public:
@@ -117,14 +126,14 @@ public:
     }
 
     const RpcReplyType& reply() const {
-        return future_reply.value();
+        return transaction.value();
     }
 
 private:
     rpc_client& client;
-    composed::future<RpcReplyType> future_reply;
-    //boost::asio::io_service::strand strand;
-    //composed::phaser<boost::asio::io_service::strand&> phaser;
+    composed::future<RpcReplyType> transaction;
+    boost::asio::io_service::strand strand;
+    composed::phaser<boost::asio::io_service::strand&> phaser;
     uint32_t id_;
 };
 
@@ -145,7 +154,7 @@ do_request_op: boost::asio::coroutine {
     pb_size_t expected_tag;
     std::chrono::nanoseconds duration;
 
-    //composed::work_guard<decltype(self.phaser)> work;
+    composed::work_guard<decltype(self.phaser)> work;
 
     mutable util::log::Logger lg;
     boost::system::error_code ec;
@@ -175,15 +184,14 @@ template <class H>
 void rpc_client<RpcStream, RpcRequestType, RpcReplyType>::transactor::do_request_op<H>::
 operator()(composed::op<do_request_op>& op) {
     if (!ec) reenter(this) {
-        //yield return self.phaser.dispatch(op());
-        //work = composed::make_work_guard(self.phaser);
+        yield return self.phaser.dispatch(op());
+        work = composed::make_work_guard(self.phaser);
 
-        yield return self.client.stream.async_write(request, op(ec));
-
+        yield return self.client.next_layer_.async_write(request, op(ec));
         BOOST_LOG(lg) << "sent request, awaiting reply";
 
-        yield return self.future_reply.async_wait_for(duration, op(ec));
-        if (self.future_reply.value().which_arg != expected_tag) {
+        yield return self.transaction.async_wait_for(duration, op(ec));
+        if (self.transaction.value().which_arg != expected_tag) {
             ec = boost::asio::error::network_down;
             // FIXME
         }

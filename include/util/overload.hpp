@@ -4,6 +4,9 @@
 //
 // Stolen from Boost.Hana, Barobo-ified, and hacked to work with gcc 4.9 by Harris Hancock
 
+#ifndef UTIL_OVERLOAD_HPP
+#define UTIL_OVERLOAD_HPP
+
 #include <type_traits>
 #include <utility>
 
@@ -134,3 +137,5 @@ struct make_overload_linearly_t {
 constexpr _::make_overload_linearly_t overloadLinearly{};
 
 }  // util
+
+#endif

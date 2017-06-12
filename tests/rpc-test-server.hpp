@@ -98,7 +98,9 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         yield return stream.async_write(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";
 
-        yield return stream.async_run_read_loop(*this, op(ec));
+        yield return stream.async_run_read_loop([this](const auto& e, auto&& h) {
+                    this->event(e, std::forward<decltype(h)>(h));
+                }, op(ec));
     }
     else if (ec == beast::websocket::error::closed) {
         BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "

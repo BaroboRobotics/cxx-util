@@ -45,7 +45,7 @@ public:
     {}
 
 private:
-    template <class EventProcessor, class Handler = void(boost::system::error_code)>
+    template <class LoopBody, class Handler = void(boost::system::error_code)>
     struct read_loop_op;
 
     template <class Handler>
@@ -62,17 +62,21 @@ private:
 
 public:
     boost::asio::io_service& get_io_service() { return next_layer_.get_io_service(); }
-    AsyncStream& next_layer() { return next_layer_; }
+    auto& next_layer() { return next_layer_; }
+    const auto& next_layer() const { return next_layer_; }
+    auto& lowest_layer() { return next_layer_.lowest_layer(); }
+    const auto& lowest_layer() const { return next_layer_.lowest_layer(); }
 
-    template <class EventProcessor, class Token>
-    auto async_run_read_loop(EventProcessor& processor, Token&& token) {
+    template <class LoopBody, class Token>
+    auto async_run_read_loop(LoopBody&& loop_body, Token&& token) {
         beast::async_completion<Token, void(boost::system::error_code)> init{token};
 
         BOOST_ASSERT(!read_loop_running);
         read_loop_running = true;
 
-        composed::operation<read_loop_op<EventProcessor>>{}(
-                *this, processor, make_read_loop_handler(std::move(init.completion_handler)));
+        composed::operation<read_loop_op<std::decay_t<LoopBody>>>{}(*this,
+                std::forward<LoopBody>(loop_body),
+                make_read_loop_handler(std::move(init.completion_handler)));
 
         return init.result.get();
     }
@@ -181,7 +185,7 @@ auto rpc_stream<AsyncStream, TxMessageType, RxMessageType>::make_read_loop_handl
 };
 
 template <class AsyncStream, class TxMessageType, class RxMessageType>
-template <class EventProcessor, class Handler>
+template <class LoopBody, class Handler>
 struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
@@ -189,15 +193,16 @@ struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op: boos
     rpc_stream& self;
     beast::basic_multi_buffer<allocator_type> buf;
 
-    EventProcessor& event_processor;
+    LoopBody loop_body;
 
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;
 
-    read_loop_op(handler_type& h, rpc_stream& s, EventProcessor& ep)
+    template <class DeducedLoopBody>
+    read_loop_op(handler_type& h, rpc_stream& s, DeducedLoopBody&& f)
         : self(s)
         , buf(256, allocator_type(h))
-        , event_processor(ep)
+        , loop_body(std::forward<DeducedLoopBody>(f))
         , lg(composed::get_associated_logger(h))
     {}
 
@@ -205,8 +210,8 @@ struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op: boos
 };
 
 template <class AsyncStream, class TxMessageType, class RxMessageType>
-template <class EventProcessor, class Handler>
-void rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op<EventProcessor, Handler>::
+template <class LoopBody, class Handler>
+void rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op<LoopBody, Handler>::
 operator()(composed::op<read_loop_op>& op) {
     if (!ec) reenter(this) {
         while (self.read_loop_running) {
@@ -220,7 +225,7 @@ operator()(composed::op<read_loop_op>& op) {
                     yield {
                         auto h = op();
                         auto visitor = [this, h](const auto& x) {
-                            event_processor.event(x, std::move(h));
+                            loop_body(x, std::move(h));
                         };
                         if (!nanopb::visit(visitor, self.message.arg)) {
                             BOOST_LOG(lg) << "unrecognized message";
@@ -265,8 +270,8 @@ operator()(composed::op<stop_read_loop_op>& op) {
         if (self.read_loop_running) {
             self.read_loop_running = false;
             self.next_layer_.cancel(ec);
-            yield return self.read_phaser.dispatch(op());
         }
+        yield return self.read_phaser.dispatch(op());
         yield return self.read_phaser.get_io_service().post(op());
     }
     op.complete(ec);
@@ -295,7 +300,10 @@ private:
 
 public:
     boost::asio::io_service& get_io_service() { return next_layer_.get_io_service(); }
-    stream_type& next_layer() { return next_layer_; }
+    auto& next_layer() { return next_layer_; }
+    const auto& next_layer() const { return next_layer_; }
+    auto& lowest_layer() { return next_layer_.lowest_layer(); }
+    const auto& lowest_layer() const { return next_layer_.lowest_layer(); }
 
     void cancel(boost::system::error_code& ec) {
         next_layer_.next_layer().cancel(ec);
