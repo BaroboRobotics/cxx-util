@@ -93,7 +93,7 @@ void server_op<Handler>::operator()(composed::op<server_op>& op) {
         yield return stream.next_layer().next_layer().async_accept(op(ec));
 
         BOOST_LOG(lg) << "WebSocket accepted";
-        stream.next_layer().next_layer().set_option(beast::websocket::message_type{beast::websocket::opcode::binary});
+        stream.next_layer().next_layer().binary(true);
 
         yield return stream.async_write(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";

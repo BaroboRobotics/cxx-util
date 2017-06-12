@@ -76,8 +76,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
 
         BOOST_LOG(lg) << "WebSocket connected";
 
-        stream.next_layer().next_layer().set_option(
-                beast::websocket::message_type{beast::websocket::opcode::binary});
+        stream.next_layer().next_layer().binary(true);
 
         stream.async_run_read_loop(
                 util::overload(

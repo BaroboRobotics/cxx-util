@@ -282,7 +282,6 @@ operator()(composed::op<stop_read_loop_op>& op) {
 template <class Executor>
 class websocket {
     // Adapts a beast::websocket::stream to match the interface of sfp::stream. I.e., it:
-    //   - gets rid of the opcode& parameter to async_read()
     //   - serializes concurrent calls to async_write(), i.e., it puts each call in a separate phase
 
 public:
@@ -311,7 +310,7 @@ public:
 
     template <class DynamicBuffer, class Token>
     auto async_read(DynamicBuffer& buffer, Token&& token) {
-        return next_layer_.async_read(opcode, buffer, std::forward<Token>(token));
+        return next_layer_.async_read(buffer, std::forward<Token>(token));
     }
 
     template <class Token>
@@ -321,7 +320,6 @@ public:
 
 private:
     stream_type next_layer_;
-    beast::websocket::opcode opcode;
     composed::phaser<Executor> write_phaser;
 };
 
