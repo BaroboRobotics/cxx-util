@@ -72,9 +72,9 @@ private:
     // RPC request implementations
 
     template <class H>
-    void request(uint32_t rid, const rpc_test_GetProperty_In& in, H&& handler);
+    void request(uint32_t rid, const rpc_test_getProperty_In& in, H&& handler);
     template <class H>
-    void request(uint32_t rid, const rpc_test_SetProperty_In& in, H&& handler);
+    void request(uint32_t rid, const rpc_test_setProperty_In& in, H&& handler);
 
     template <class T, class Token>
     auto async_write_reply(uint32_t rid, const T& message, Token&& token) {
@@ -144,24 +144,24 @@ inline void server_op<Handler>::event(const rpc_test_Quux&, H&& handler) {
 
 template <class Handler>
 template <class H>
-inline void server_op<Handler>::request(uint32_t rid, const rpc_test_GetProperty_In& in, H&& handler) {
-    BOOST_LOG(lg) << "received a GetProperty RPC request";
-    this->async_write_reply(rid, rpc_test_GetProperty_Out{true, propertyValue},
+inline void server_op<Handler>::request(uint32_t rid, const rpc_test_getProperty_In& in, H&& handler) {
+    BOOST_LOG(lg) << "received a getProperty RPC request";
+    this->async_write_reply(rid, rpc_test_getProperty_Out{true, propertyValue},
             composed::discard_results(std::forward<H>(handler)));
 }
 
 template <class Handler>
 template <class H>
-inline void server_op<Handler>::request(uint32_t rid, const rpc_test_SetProperty_In& in, H&& handler) {
-    BOOST_LOG(lg) << "received a SetProperty RPC request";
+inline void server_op<Handler>::request(uint32_t rid, const rpc_test_setProperty_In& in, H&& handler) {
+    BOOST_LOG(lg) << "received a setProperty RPC request";
     if (in.has_value) {
         propertyValue = in.value;
     }
     else {
-        BOOST_LOG(lg) << "received an invalid SetProperty RPC request";
+        BOOST_LOG(lg) << "received an invalid setProperty RPC request";
     }
 
-    this->async_write_reply(rid, rpc_test_SetProperty_Out{},
+    this->async_write_reply(rid, rpc_test_setProperty_Out{},
             composed::discard_results(std::forward<H>(handler)));
 }
 

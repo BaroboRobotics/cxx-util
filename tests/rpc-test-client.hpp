@@ -104,7 +104,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
 
         using namespace std::literals;
         yield return rpc.async_do_request(
-                rpc_test_SetProperty_In{true, 333.0},
+                rpc_test_setProperty_In{true, 333.0},
                 rpc_test_RpcReply_setProperty_tag,
                 1s,
                 op(reply_ec));
@@ -116,7 +116,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         }
 
         yield return rpc.async_do_request(
-                rpc_test_GetProperty_In{},
+                rpc_test_getProperty_In{},
                 rpc_test_RpcReply_getProperty_tag,
                 1s,
                 op(reply_ec));

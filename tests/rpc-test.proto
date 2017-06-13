@@ -4,14 +4,14 @@ import "nanopb.proto";
 
 package rpc.test;
 
-message GetProperty {
+message getProperty {
     message In {}
     message Out {
         optional float value = 1;
     }
 }
 
-message SetProperty {
+message setProperty {
     message In {
         optional float value = 1;
     }
@@ -22,8 +22,8 @@ message RpcRequest {
     optional uint32 requestId = 1;
 
     oneof arg {
-        GetProperty.In getProperty = 2;
-        SetProperty.In setProperty = 3;
+        getProperty.In getProperty = 2;
+        setProperty.In setProperty = 3;
     }
 }
 
@@ -31,8 +31,8 @@ message RpcReply {
     optional uint32 requestId = 1;
 
     oneof arg {
-        GetProperty.Out getProperty = 2;
-        SetProperty.Out setProperty = 3;
+        getProperty.Out getProperty = 2;
+        setProperty.Out setProperty = 3;
     }
 }
 
