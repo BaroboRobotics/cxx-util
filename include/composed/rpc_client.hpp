@@ -27,7 +27,8 @@ namespace composed {
 template <class RpcStream, class RpcRequestType, class RpcReplyType>
 class rpc_client {
 public:
-    rpc_client(RpcStream& s): next_layer_(s) {}
+    template <class... Args>
+    explicit rpc_client(Args&&... args): next_layer_(std::forward<Args>(args)...) {}
 
     class transactor;
 
@@ -54,7 +55,7 @@ private:
         transactions.erase(id);
     }
 
-    RpcStream& next_layer_;
+    RpcStream next_layer_;
     std::map<uint32_t, composed::future<RpcReplyType>*> transactions;
     uint32_t next_transaction_id = 0;
 };
@@ -63,20 +64,16 @@ template <class RpcStream, class RpcRequestType, class RpcReplyType>
 template <class Handler>
 void rpc_client<RpcStream, RpcRequestType, RpcReplyType>::
 event(const RpcReplyType& e, Handler&& handler) {
-    auto lg = get_associated_logger(handler);
     if (!e.has_requestId) {
+        auto lg = get_associated_logger(handler);
         BOOST_LOG(lg) << "Received an RPC reply without a request ID";
         next_layer_.get_io_service().post(std::forward<Handler>(handler));
     }
     else {
-        BOOST_LOG_SCOPED_LOGGER_TAG(lg, "RequestId", std::to_string(e.requestId));
-        BOOST_LOG(lg) << "Fulfilling request";
-
         auto request = transactions.find(e.requestId);
         if (request != transactions.end()) {
             request->second->emplace(e);
         }
-
         next_layer_.get_io_service().post(std::forward<Handler>(handler));
     }
 }
@@ -188,7 +185,7 @@ operator()(composed::op<do_request_op>& op) {
         work = composed::make_work_guard(self.phaser);
 
         yield return self.client.next_layer_.async_write(request, op(ec));
-        BOOST_LOG(lg) << "sent request, awaiting reply";
+        BOOST_LOG(lg) << "sent request";
 
         yield return self.transaction.async_wait_for(duration, op(ec));
         if (self.transaction.value().which_arg != expected_tag) {

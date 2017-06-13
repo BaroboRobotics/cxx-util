@@ -11,8 +11,8 @@
 // In retrospect, this is not nearly as useful as I was hoping, since SFP streams are already
 // phased, since their reads may interfere with their writes. Ugggh.
 
-#ifndef COMPOSED_PHASED_STREAM_HPP
-#define COMPOSED_PHASED_STREAM_HPP
+#ifndef COMPOSED_RPC_STREAM_HPP
+#define COMPOSED_RPC_STREAM_HPP
 
 #include <composed/phaser.hpp>
 #include <composed/op.hpp>
@@ -215,9 +215,7 @@ void rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_op<LoopBod
 operator()(composed::op<read_loop_op>& op) {
     if (!ec) reenter(this) {
         while (self.read_loop_running) {
-            BOOST_LOG(lg) << "Starting rpc read op";
             yield return self.next_layer_.async_read(buf, op(ec));
-            BOOST_LOG(lg) << "rpc read op complete";
 
             while (buf.size()) {
                 self.message = {};
@@ -279,7 +277,6 @@ operator()(composed::op<stop_read_loop_op>& op) {
 
 // =======================================================================================
 
-template <class Executor>
 class websocket {
     // Adapts a beast::websocket::stream to match the interface of sfp::stream. I.e., it:
     //   - serializes concurrent calls to async_write(), i.e., it puts each call in a separate phase
@@ -287,10 +284,10 @@ class websocket {
 public:
     using stream_type = beast::websocket::stream<boost::asio::ip::tcp::socket&>;
 
-    template <class... Args>
-    websocket(typename Executor::handler_type& h, Args&&... args)
-        : next_layer_(std::forward<Args>(args)...)
-        , write_phaser(next_layer_.get_io_service(), h)
+    explicit websocket(stream_type& stream)
+        : next_layer_(stream)
+        , strand(next_layer_.get_io_service())
+        , write_phaser(strand)
     {}
 
 private:
@@ -319,20 +316,20 @@ public:
     }
 
 private:
-    stream_type next_layer_;
-    composed::phaser<Executor> write_phaser;
+    stream_type& next_layer_;
+    boost::asio::io_service::strand strand;
+    composed::phaser<boost::asio::io_service::strand&> write_phaser;
 };
 
-template <class Executor>
 template <class Handler>
-struct websocket<Executor>::write_op: boost::asio::coroutine {
+struct websocket::write_op: boost::asio::coroutine {
     using handler_type = Handler;
     using allocator_type = beast::handler_alloc<char, handler_type>;
 
     websocket& self;
     boost::asio::const_buffers_1 buffer;
 
-    composed::work_guard<composed::phaser<Executor>> work;
+    composed::work_guard<composed::phaser<boost::asio::io_service::strand&>> work;
 
     composed::associated_logger_t<handler_type> lg;
     boost::system::error_code ec;
@@ -346,9 +343,8 @@ struct websocket<Executor>::write_op: boost::asio::coroutine {
     void operator()(composed::op<write_op>& op);
 };
 
-template <class Executor>
 template <class Handler>
-void websocket<Executor>::write_op<Handler>::operator()(composed::op<write_op>& op) {
+void websocket::write_op<Handler>::operator()(composed::op<write_op>& op) {
     if (!ec) reenter(this) {
         yield return self.write_phaser.dispatch(op());
         work = composed::make_work_guard(self.write_phaser);

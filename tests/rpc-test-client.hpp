@@ -34,11 +34,12 @@ struct client_op: boost::asio::coroutine {
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
-    composed::websocket<executor_type> ws;
-    composed::rpc_stream<composed::websocket<executor_type>&,
-            rpc_test_ClientToServer, rpc_test_ServerToClient> stream;
-    composed::rpc_client<decltype(stream), rpc_test_RpcRequest, rpc_test_RpcReply> client;
-    typename decltype(client)::transactor rpc;
+    beast::websocket::stream<boost::asio::ip::tcp::socket&> stream;
+    composed::websocket msgStream;
+    composed::rpc_stream<composed::websocket&,
+            rpc_test_ClientToServer, rpc_test_ServerToClient> rpcStream;
+    composed::rpc_client<decltype(rpcStream)&, rpc_test_RpcRequest, rpc_test_RpcReply> rpcClient;
+    typename decltype(rpcClient)::transactor rpc;
 
     boost::asio::ip::tcp::endpoint remote_ep;
 
@@ -48,10 +49,11 @@ struct client_op: boost::asio::coroutine {
 
     client_op(handler_type& h, boost::asio::ip::tcp::socket& s,
             boost::asio::ip::tcp::endpoint ep)
-        : ws(h, s)
-        , stream(ws)
-        , client(stream)
-        , rpc(client)
+        : stream(s)
+        , msgStream(stream)
+        , rpcStream(msgStream)
+        , rpcClient(rpcStream)
+        , rpc(rpcClient)
         , remote_ep(ep)
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("client"));
@@ -70,34 +72,34 @@ struct client_op: boost::asio::coroutine {
 template <class Handler>
 void client_op<Handler>::operator()(composed::op<client_op>& op) {
     if (!ec) reenter(this) {
-        yield return stream.next_layer().next_layer().next_layer().async_connect(remote_ep, op(ec));
-        yield return stream.next_layer().next_layer().async_handshake(
+        yield return stream.next_layer().async_connect(remote_ep, op(ec));
+        yield return stream.async_handshake(
                 "hodorhodorhodor.com", "/cgi-bin/hax", op(ec));
 
         BOOST_LOG(lg) << "WebSocket connected";
 
-        stream.next_layer().next_layer().binary(true);
+        stream.binary(true);
 
-        stream.async_run_read_loop(
+        rpcStream.async_run_read_loop(
                 util::overload(
                         [this](const auto& e, auto&& h) {
                             this->event(e, std::forward<decltype(h)>(h));
                         },
                         [this](const rpc_test_RpcReply& e, auto&& h) {
-                            client.event(e, std::forward<decltype(h)>(h));
+                            rpcClient.event(e, std::forward<decltype(h)>(h));
                         }),
                 op.wrap([this](const boost::system::error_code& ec) {
                     if (ec == beast::websocket::error::closed) {
                         BOOST_LOG(lg) << "read loop stopped because remote closed WebSocket: "
-                                << stream.next_layer().next_layer().reason().code << '/'
-                                << stream.next_layer().next_layer().reason().reason.c_str();
+                                << stream.reason().code << '/'
+                                << stream.reason().reason.c_str();
                     }
                     else {
                         BOOST_LOG(lg) << "read loop error: " << ec.message();
                     }
                 }));
 
-        yield return stream.async_write(rpc_test_Quux{}, op(ec));
+        yield return rpcStream.async_write(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";
 
         using namespace std::literals;
@@ -126,10 +128,10 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         }
 
         BOOST_LOG(lg) << "closing connection";
-        yield return stream.next_layer().next_layer().async_close({"Hodor!"}, op(std::ignore));
+        yield return stream.async_close({"Hodor!"}, op(std::ignore));
 
         BOOST_LOG(lg) << "waiting for read loop";
-        yield return stream.async_stop_read_loop(op(ec));
+        yield return rpcStream.async_stop_read_loop(op(ec));
         BOOST_LOG(lg) << "read loop done, client op exiting";
     }
     else {

@@ -37,9 +37,10 @@ struct server_op: boost::asio::coroutine {
     using logger_type = composed::logger;
     logger_type get_logger() const { return &lg; }
 
-    composed::websocket<executor_type> ws;
-    composed::rpc_stream<composed::websocket<executor_type>&,
-            rpc_test_ServerToClient, rpc_test_ClientToServer> stream;
+    beast::websocket::stream<boost::asio::ip::tcp::socket&> stream;
+    composed::websocket msgStream;
+    composed::rpc_stream<composed::websocket&,
+            rpc_test_ServerToClient, rpc_test_ClientToServer> rpcStream;
 
     float propertyValue = 1.0;
 
@@ -48,8 +49,9 @@ struct server_op: boost::asio::coroutine {
 
     server_op(handler_type& h, boost::asio::ip::tcp::socket& s,
             boost::asio::ip::tcp::endpoint remote_ep)
-        : ws(h, s)
-        , stream(ws)
+        : stream(s)
+        , msgStream(stream)
+        , rpcStream(msgStream)
     {
         lg.add_attribute("Role", boost::log::attributes::make_constant("server"));
         lg.add_attribute("TcpRemoteEndpoint", boost::log::attributes::make_constant(remote_ep));
@@ -80,7 +82,7 @@ private:
         reply.has_requestId = true;
         reply.requestId = rid;
         nanopb::assign(reply.arg, message);
-        return stream.async_write(reply, std::forward<Token>(token));
+        return rpcStream.async_write(reply, std::forward<Token>(token));
     }
 };
 
@@ -90,22 +92,22 @@ private:
 template <class Handler>
 void server_op<Handler>::operator()(composed::op<server_op>& op) {
     if (!ec) reenter(this) {
-        yield return stream.next_layer().next_layer().async_accept(op(ec));
+        yield return rpcStream.next_layer().next_layer().async_accept(op(ec));
 
         BOOST_LOG(lg) << "WebSocket accepted";
-        stream.next_layer().next_layer().binary(true);
+        rpcStream.next_layer().next_layer().binary(true);
 
-        yield return stream.async_write(rpc_test_Quux{}, op(ec));
+        yield return rpcStream.async_write(rpc_test_Quux{}, op(ec));
         BOOST_LOG(lg) << "sent a Quux";
 
-        yield return stream.async_run_read_loop([this](const auto& e, auto&& h) {
+        yield return rpcStream.async_run_read_loop([this](const auto& e, auto&& h) {
                     this->event(e, std::forward<decltype(h)>(h));
                 }, op(ec));
     }
     else if (ec == beast::websocket::error::closed) {
         BOOST_LOG(lg) << "WebSocket closed, remote gave code/reason: "
-                << stream.next_layer().next_layer().reason().code << '/'
-                << stream.next_layer().next_layer().reason().reason.c_str();
+                << rpcStream.next_layer().next_layer().reason().code << '/'
+                << rpcStream.next_layer().next_layer().reason().reason.c_str();
     }
     else {
         BOOST_LOG(lg) << "error: " << ec.message();
