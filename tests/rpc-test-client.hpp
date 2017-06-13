@@ -65,8 +65,7 @@ struct client_op: boost::asio::coroutine {
     // ===================================================================================
     // Event messages
 
-    template <class H>
-    void event(const rpc_test_Quux&, H&& handler);
+    void event(const rpc_test_Quux&);
 };
 
 template <class Handler>
@@ -83,10 +82,12 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
         rpcStream.async_run_read_loop(
                 util::overload(
                         [this](const auto& e, auto&& h) {
-                            this->event(e, std::forward<decltype(h)>(h));
+                            this->event(e);
+                            stream.get_io_service().post(std::forward<decltype(h)>(h));
                         },
                         [this](const rpc_test_RpcReply& e, auto&& h) {
-                            rpcClient.event(e, std::forward<decltype(h)>(h));
+                            rpcClient.event(e);
+                            stream.get_io_service().post(std::forward<decltype(h)>(h));
                         }),
                 op.wrap([this](const boost::system::error_code& ec) {
                     if (ec == beast::websocket::error::closed) {
@@ -121,7 +122,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
                 1s,
                 op(reply_ec));
         if (!reply_ec) {
-            BOOST_LOG(lg) << "GetProperty reply: " << rpc.reply().arg.getProperty.value;
+            BOOST_LOG(lg) << "GetProperty reply: " << rpc.reply().getProperty.value;
         }
         else {
             BOOST_LOG(lg) << "GetProperty reply error: " << reply_ec.message();
@@ -143,10 +144,8 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
 constexpr composed::operation<client_op<>> async_client;
 
 template <class Handler>
-template <class H>
-void client_op<Handler>::event(const rpc_test_Quux& quux, H&& handler) {
+void client_op<Handler>::event(const rpc_test_Quux& quux) {
     BOOST_LOG(lg) << "Received a Quux";
-    stream.get_io_service().post(std::forward<H>(handler));
 }
 
 #include  <boost/asio/unyield.hpp>

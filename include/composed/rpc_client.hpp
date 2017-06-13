@@ -41,8 +41,7 @@ public:
     // ===================================================================================
     // Event messages
 
-    template <class Handler>
-    void event(const RpcReplyType& e, Handler&& handler);
+    void event(const RpcReplyType& e);
 
 private:
     uint32_t allocate_transaction(composed::future<RpcReplyType>& t) {
@@ -61,20 +60,13 @@ private:
 };
 
 template <class RpcStream, class RpcRequestType, class RpcReplyType>
-template <class Handler>
 void rpc_client<RpcStream, RpcRequestType, RpcReplyType>::
-event(const RpcReplyType& e, Handler&& handler) {
-    if (!e.has_requestId) {
-        auto lg = get_associated_logger(handler);
-        BOOST_LOG(lg) << "Received an RPC reply without a request ID";
-        next_layer_.get_io_service().post(std::forward<Handler>(handler));
-    }
-    else {
+event(const RpcReplyType& e) {
+    if (e.has_requestId) {
         auto request = transactions.find(e.requestId);
         if (request != transactions.end()) {
             request->second->emplace(e);
         }
-        next_layer_.get_io_service().post(std::forward<Handler>(handler));
     }
 }
 
@@ -122,8 +114,8 @@ public:
                 std::forward<Duration>(duration), std::forward<Token>(token));
     }
 
-    const RpcReplyType& reply() const {
-        return transaction.value();
+    const auto& reply() const {
+        return transaction.value().arg;
     }
 
 private:
