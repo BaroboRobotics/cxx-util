@@ -148,6 +148,7 @@ struct rpc_stream<AsyncStream, TxMessageType, RxMessageType>::read_loop_handler 
 
     void operator()(const boost::system::error_code& ec) {
         self.read_loop_running = false;
+        work = {};
         handler(ec);
     }
 
