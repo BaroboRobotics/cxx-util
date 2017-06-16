@@ -75,6 +75,12 @@ event(const RpcReplyType& e) {
 
 template <class RpcStream, class RpcRequestType, class RpcReplyType>
 class rpc_client<RpcStream, RpcRequestType, RpcReplyType>::transactor {
+    rpc_client& client;
+    composed::future<RpcReplyType> transaction;
+    boost::asio::io_service::strand strand;
+    composed::phaser<boost::asio::io_service::strand&> phaser;
+    uint32_t id_;
+
 public:
     explicit transactor(rpc_client& c)
             : client(c)
@@ -92,13 +98,20 @@ public:
         client.deallocate_transaction(id_);
     }
 
-    void cancel(boost::system::error_code& ec) {
-        client.next_layer_.next_layer().cancel(ec);
-        transaction.cancel(ec);
+    boost::asio::io_service& get_io_service() { return client.next_layer_.get_io_service(); }
+    auto& next_layer() { return client.next_layer_; }
+    const auto& next_layer() const { return client.next_layer_; }
+    auto& lowest_layer() { return client.next_layer_.lowest_layer(); }
+    const auto& lowest_layer() const { return client.next_layer_.lowest_layer(); }
+
+    void close(boost::system::error_code& ec) {
+        transaction.close(ec);
     }
 
+    using work_guard = composed::work_guard<decltype(phaser)>;
+
 private:
-    template <class Handler = void(boost::system::error_code)>
+    template <class Handler = void(boost::system::error_code, work_guard)>
     struct do_request_op;
 
     void reallocate() {
@@ -107,6 +120,7 @@ private:
     }
 
 public:
+
     template <class T, class Duration, class Token>
     auto async_do_request(
             const T& message, pb_size_t expected_tag, Duration&& duration, Token&& token) {
@@ -118,12 +132,9 @@ public:
         return transaction.value().arg;
     }
 
-private:
-    rpc_client& client;
-    composed::future<RpcReplyType> transaction;
-    boost::asio::io_service::strand strand;
-    composed::phaser<boost::asio::io_service::strand&> phaser;
-    uint32_t id_;
+    const auto& replyEx() const {
+        return transaction.value();
+    }
 };
 
 template <class RpcStream, class RpcRequestType, class RpcReplyType>
@@ -156,13 +167,17 @@ do_request_op: boost::asio::coroutine {
         , lg(composed::get_associated_logger(h).clone())
 
     {
-        request.has_requestId = true;
-        request.requestId = self.id_;
         nanopb::assign(request.arg, message);
-        lg.add_attribute("RequestId",
-                boost::log::attributes::make_constant(std::to_string(self.id_)));
-        lg.add_attribute("RequestName",
-                boost::log::attributes::make_constant(boost::typeindex::type_id<T>().pretty_name()));
+        this->resetLogAttribute("RequestName", boost::log::attributes::make_constant(boost::typeindex::type_id<T>().pretty_name()));
+    }
+
+    template <class T>
+    void resetLogAttribute(const char* key, const T& value) {
+        // TODO: Very hacky and inefficient. :( Can we do better with a mutable attribute?
+        auto attrs = lg.get_attributes();
+        attrs.erase(key);
+        lg.set_attributes(attrs);
+        lg.add_attribute(key, value);
     }
 
     void operator()(composed::op<do_request_op>& op);
@@ -176,6 +191,12 @@ operator()(composed::op<do_request_op>& op) {
         yield return self.phaser.dispatch(op());
         work = composed::make_work_guard(self.phaser);
 
+        request.has_requestId = true;
+        request.requestId = self.id_;
+        this->resetLogAttribute("RequestId", boost::log::attributes::make_constant(std::to_string(self.id_)));
+        // We must set these only after dispatching through the phaser, as otherwise we'll 
+        // set the wrong requestId.
+
         yield return self.client.next_layer_.async_write(request, op(ec));
         BOOST_LOG(lg) << "sent request";
 
@@ -188,7 +209,7 @@ operator()(composed::op<do_request_op>& op) {
         BOOST_LOG(lg) << "got reply";
     }
     self.reallocate();
-    op.complete(ec);
+    op.complete(ec, std::move(work));
 }
 
 }  // composed
