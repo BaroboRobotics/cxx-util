@@ -17,7 +17,7 @@
 #include <composed/phaser.hpp>
 #include <composed/op.hpp>
 
-#include <pb.hpp>
+#include <pb_asio.hpp>
 
 #include <beast/core/handler_alloc.hpp>
 #include <beast/core/async_result.hpp>
