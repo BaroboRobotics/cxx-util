@@ -57,9 +57,13 @@ public:
     auto async_wait_until(TimePoint&& tp, Token&& token);
     // Same as async_wait, but wait until a specific time point.
 
-    void cancel() { timer.cancel(); }
-    void cancel(boost::system::error_code& ec) { timer.cancel(ec); }
-    // Cancel any outstanding wait operation.
+    void close() {
+        timer.expires_at(boost::asio::steady_timer::clock_type::time_point::min());
+    }
+    void close(boost::system::error_code& ec) {
+        timer.expires_at(boost::asio::steady_timer::clock_type::time_point::min(), ec);
+    }
+    // Cancel any outstanding and future wait operations.
 
     template <class... Args>
     void emplace(Args&&... args);
@@ -87,12 +91,16 @@ struct future<T>::wait_handler {
     Handler h;
 
     void operator()(const boost::system::error_code& ec) {
-        if (ec == boost::asio::error::operation_aborted) {
-            // A cancelled timer means we didn't timeout.
+        if (parent.timer.expires_at() == boost::asio::steady_timer::clock_type::time_point::min()) {
+            // We are closed.
+            h(boost::asio::error::operation_aborted);
+        }
+        else if (ec) {
+            // A plain old cancelled timer means we didn't timeout.
             h(boost::system::error_code{});
         }
         else {
-            BOOST_ASSERT(!ec);
+            // And success means we timed out.
             h(boost::asio::error::timed_out);
         }
     }
@@ -133,7 +141,9 @@ template <class Duration, class Token>
 auto future<T>::async_wait_for(Duration&& duration, Token&& token) {
     beast::async_completion<Token, void(boost::system::error_code)> init{token};
 
-    timer.expires_from_now(std::forward<Duration>(duration));
+    if (timer.expires_at() != boost::asio::steady_timer::clock_type::time_point::min()) {
+        timer.expires_from_now(std::forward<Duration>(duration));
+    }
     timer.async_wait(make_wait_handler(std::move(init.completion_handler)));
 
     return init.result.get();
@@ -144,7 +154,9 @@ template <class TimePoint, class Token>
 auto future<T>::async_wait_until(TimePoint&& tp, Token&& token) {
     beast::async_completion<Token, void(boost::system::error_code)> init{token};
 
-    timer.expires_at(std::forward<TimePoint>(tp));
+    if (timer.expires_at() != boost::asio::steady_timer::clock_type::time_point::min()) {
+        timer.expires_at(std::forward<TimePoint>(tp));
+    }
     timer.async_wait(make_wait_handler(std::move(init.completion_handler)));
 
     return init.result.get();
@@ -154,7 +166,8 @@ template <class T>
 template <class... Args>
 void future<T>::emplace(Args&&... args) {
     value_.emplace(std::forward<Args>(args)...);
-    timer.expires_at(boost::asio::steady_timer::clock_type::time_point::min());
+    boost::system::error_code ec;
+    timer.cancel(ec);
 }
 
 }  // composed
