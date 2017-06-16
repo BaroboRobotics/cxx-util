@@ -312,7 +312,7 @@ template <class Task, class... Args>
 auto async_run(Args&&... args) {
     static_assert(sizeof...(Args) > 0, "Asynchronous operations need at least one argument");
     using indices = make_index_sequence<sizeof...(Args) - 1>;
-    async_run_impl<Task>(std::forward_as_tuple(std::forward<Args>(args)...), indices{});
+    return async_run_impl<Task>(std::forward_as_tuple(std::forward<Args>(args)...), indices{});
 }
 
 template <class Task>
