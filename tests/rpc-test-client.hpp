@@ -108,7 +108,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
                 rpc_test_setProperty_In{true, 333.0},
                 rpc_test_RpcReply_setProperty_tag,
                 1s,
-                op(reply_ec));
+                op(reply_ec, std::ignore));
         if (!reply_ec) {
             BOOST_LOG(lg) << "SetProperty reply";
         }
@@ -120,7 +120,7 @@ void client_op<Handler>::operator()(composed::op<client_op>& op) {
                 rpc_test_getProperty_In{},
                 rpc_test_RpcReply_getProperty_tag,
                 1s,
-                op(reply_ec));
+                op(reply_ec, std::ignore));
         if (!reply_ec) {
             BOOST_LOG(lg) << "GetProperty reply: " << rpc.reply().getProperty.value;
         }
