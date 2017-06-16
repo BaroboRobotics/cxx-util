@@ -12,6 +12,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_future.hpp>
 
 #include <boost/scope_exit.hpp>
 
@@ -21,6 +22,10 @@
 #include <csignal>
 
 #include <boost/asio/yield.hpp>
+
+namespace {
+
+auto use_future = boost::asio::use_future_t<std::allocator<char>>{};
 
 struct test_handler {
     // A final handler to aid in checking that all the handler hooks are being exercised correctly.
@@ -164,6 +169,15 @@ constexpr composed::operation<test_op<>> async_test;
 
 // =======================================================================================
 // Test cases
+
+TEST_CASE("can pass a use_future token to a composed::op") {
+    boost::asio::io_service context;
+    boost::asio::steady_timer timer{context};
+
+    auto f = async_test(timer, use_future);
+    context.run();
+    f.get();
+}
 
 TEST_CASE("can start a composed::op") {
     boost::asio::io_service context;
@@ -461,5 +475,7 @@ TEST_CASE("work_guard") {
         CHECK(exec.work_finished == 1);
     }
 }
+
+}  // <anonymous>
 
 #include <boost/asio/unyield.hpp>
