@@ -16,6 +16,8 @@
 #include <composed/stdlib.hpp>
 #include <composed/work_guard.hpp>
 
+#include <util/log.hpp>
+
 #include <beast/core/handler_ptr.hpp>
 
 #include <boost/asio/strand.hpp>
