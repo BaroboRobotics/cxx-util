@@ -36,10 +36,12 @@ struct client_op: boost::asio::coroutine {
 
     beast::websocket::stream<boost::asio::ip::tcp::socket&> stream;
     composed::websocket msgStream;
-    composed::rpc_stream<composed::websocket&,
-            rpc_test_ClientToServer, rpc_test_ServerToClient> rpcStream;
-    composed::rpc_client<decltype(rpcStream)&, rpc_test_RpcRequest, rpc_test_RpcReply> rpcClient;
-    typename decltype(rpcClient)::transactor rpc;
+    using RpcStream = composed::rpc_stream<composed::websocket&,
+            rpc_test_ClientToServer, rpc_test_ServerToClient>;
+    using RpcClient = composed::rpc_client<RpcStream&, rpc_test_RpcRequest, rpc_test_RpcReply>;
+    RpcStream rpcStream;
+    RpcClient rpcClient;
+    typename RpcClient::transactor rpc;
 
     boost::asio::ip::tcp::endpoint remote_ep;
 

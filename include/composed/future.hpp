@@ -30,6 +30,8 @@
 
 #include <beast/core/async_result.hpp>
 
+#include <boost/asio/steady_timer.hpp>
+
 namespace composed {
 
 // =======================================================================================
@@ -39,6 +41,8 @@ template <class T>
 class future {
 public:
     explicit future(boost::asio::io_service& context): timer(context) {}
+
+    boost::asio::io_service& get_io_service() { return timer.get_io_service(); }
 
     template <class Token>
     auto async_wait(Token&& token) {

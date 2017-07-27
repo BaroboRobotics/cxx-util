@@ -136,11 +136,13 @@ void main_op<Handler>::operator()(composed::op<main_op>& op) {
         yield {
             auto work = make_work_guard(phaser);
 
-            auto run_server = [this, work](
-                    boost::asio::ip::tcp::socket&& s, const boost::asio::ip::tcp::endpoint& remote) {
+            // The hoops I jump through to get a `connections` reference into the cleanup lambda
+            // capture are due to bugs in MSVC. On gcc we can just capture `this`.
+            auto run_server = [this, &connections = connections, work](
+                    boost::asio::ip::tcp::socket&& s, const boost::asio::ip::tcp::endpoint& remote) mutable {
                 connections.emplace_front(std::move(s));
                 auto cleanup = bind_handler_context(handler_context,
-                        [this, work, x = connections.begin()] { connections.erase(x); });
+                        [&connections, work, x = connections.begin()] { connections.erase(x); });
                 async_server(connections.front(), remote, std::move(cleanup));
             };
 
