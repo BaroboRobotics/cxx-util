@@ -14,7 +14,7 @@ endif()
 option(CXXUTIL_BUILD_TESTS "Build cxx-util tests" OFF)
 
 set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log thread date_time regex iostreams)
+find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem log date_time regex iostreams)
 
 if(AVR)
     add_library(cxx-util INTERFACE)
